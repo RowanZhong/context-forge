@@ -1,0 +1,116 @@
+# Context Forge .dockerignore
+# Docker 构建排除文件，减小构建上下文大小
+
+# ===== Git 和版本控制 =====
+.git
+.gitignore
+.gitattributes
+.github
+
+# ===== Python 缓存和构建产物 =====
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info
+.eggs
+dist
+build
+*.whl
+
+# ===== 测试和覆盖率 =====
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+.tox
+.nox
+.hypothesis
+coverage.xml
+*.cover
+
+# ===== 虚拟环境 =====
+.venv
+venv
+env
+ENV
+.env
+.env.*
+!.env.example
+
+# ===== IDE 和编辑器 =====
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ===== 文档和示例 =====
+docs
+examples
+benchmarks
+*.md
+!README.md
+
+# ===== 开发工具配置 =====
+.mypy_cache
+.ruff_cache
+.pytype
+
+# ===== 日志和临时文件 =====
+*.log
+*.pid
+*.seed
+logs/
+tmp/
+temp/
+*.tmp
+
+# ===== Context Forge 运行时目录 =====
+.context_forge
+context_snapshots
+prompt_diffs
+golden_sets
+data
+cache
+storage
+
+# ===== 模型缓存（构建时下载）=====
+models
+.cache
+huggingface
+sentence_transformers
+
+# ===== 配置文件（敏感）=====
+config.local.yaml
+config.*.yaml
+!configs/default_policy.yaml
+secrets
+credentials
+
+# ===== 测试数据 =====
+tests
+test_*.py
+
+# ===== CI/CD =====
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# ===== Docker 相关 =====
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# ===== 其他构建工具 =====
+Makefile
+*.mk
+scripts
+
+# ===== 许可证和贡献指南（已在代码中）=====
+LICENSE
+CONTRIBUTING.md
+CHANGELOG.md
+CLAUDE.md

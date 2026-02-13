@@ -1,0 +1,267 @@
+# Context Forge 发布流水线
+# 触发条件：创建 v* 标签
+# 任务：版本验证 / Docker 构建推送 / GitHub Release
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本（例如：v0.1.0）'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ===== 版本验证 =====
+  validate:
+    name: 验证版本号
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      version_without_v: ${{ steps.get_version.outputs.version_without_v }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 获取版本号
+        id: get_version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION_WITHOUT_V="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_without_v=$VERSION_WITHOUT_V" >> $GITHUB_OUTPUT
+          echo "发布版本: $VERSION"
+
+      - name: 验证版本格式
+        run: |
+          VERSION="${{ steps.get_version.outputs.version_without_v }}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "错误：版本号格式不正确（应为 x.y.z）"
+            exit 1
+          fi
+
+      - name: 验证 pyproject.toml 版本一致性
+        run: |
+          PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          TAG_VERSION="${{ steps.get_version.outputs.version_without_v }}"
+          if [[ "$PYPROJECT_VERSION" != "$TAG_VERSION" ]]; then
+            echo "错误：pyproject.toml 版本 ($PYPROJECT_VERSION) 与标签版本 ($TAG_VERSION) 不一致"
+            exit 1
+          fi
+          echo "版本验证通过：$TAG_VERSION"
+
+      - name: 验证 CHANGELOG.md 包含此版本
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          if ! grep -q "\[$VERSION\]" CHANGELOG.md; then
+            echo "警告：CHANGELOG.md 中未找到 $VERSION 的更新日志"
+          fi
+
+  # ===== 构建和发布 Docker 镜像 =====
+  docker:
+    name: 构建和推送 Docker 镜像
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [validate]
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 登录 Docker Hub（可选）
+        if: secrets.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 提取元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            context-forge/context-forge
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: 构建并推送 Docker 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.validate.outputs.version_without_v }}
+
+      - name: 验证镜像
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version_without_v }}
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version_without_v }} \
+            python -c "from context_forge import ContextForge; print('Image validated successfully')"
+
+  # ===== 创建 GitHub Release =====
+  release:
+    name: 创建 GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [validate, docker]
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装构建工具
+        run: pip install build
+
+      - name: 构建分发包
+        run: python -m build
+
+      - name: 提取版本更新日志
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          # 从 CHANGELOG.md 提取此版本的更新日志
+          CHANGELOG=$(sed -n "/## \[$VERSION\]/,/## \[/p" CHANGELOG.md | sed '$d' | tail -n +2)
+          if [[ -z "$CHANGELOG" ]]; then
+            CHANGELOG="发布版本 $VERSION"
+          fi
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 生成 Release 说明
+        id: release_notes
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          cat > release_notes.md << EOF
+          ## Context Forge $VERSION
+
+          **高性能动态上下文组装引擎** — LLM 应用的 ORM
+
+          ### 本次发布
+
+          ${{ steps.changelog.outputs.CHANGELOG }}
+
+          ### 安装
+
+          \`\`\`bash
+          # PyPI 安装
+          pip install context-forge==${{ needs.validate.outputs.version_without_v }}
+
+          # Docker 安装
+          docker pull ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version_without_v }}
+          \`\`\`
+
+          ### 快速上手
+
+          \`\`\`python
+          from context_forge import ContextForge
+
+          forge = ContextForge(model="gpt-4o")
+          context = await forge.build(
+              system_prompt="你是一个有用的助手。",
+              messages=[{"role": "user", "content": "你好"}],
+          )
+          \`\`\`
+
+          ### Docker 运行
+
+          \`\`\`bash
+          docker run -p 8000:8000 ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version_without_v }}
+          \`\`\`
+
+          ### 文档
+
+          - 📚 [完整文档](https://context-forge.github.io)
+          - 🚀 [快速上手](https://github.com/${{ github.repository }}/blob/main/README.md)
+          - 🏗️ [架构设计](https://github.com/${{ github.repository }}/blob/main/docs/architecture.md)
+          - 📖 [API 参考](https://github.com/${{ github.repository }}/blob/main/docs/api_reference.md)
+
+          ### 支持
+
+          - [报告问题](https://github.com/${{ github.repository }}/issues)
+          - [贡献指南](https://github.com/${{ github.repository }}/blob/main/CONTRIBUTING.md)
+          EOF
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.validate.outputs.version }}
+          name: Context Forge ${{ needs.validate.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
+          files: |
+            dist/*
+          generate_release_notes: true
+
+  # ===== 发布后通知（可选）=====
+  notify:
+    name: 发布通知
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [validate, docker, release]
+    if: always()
+
+    steps:
+      - name: 发布成功通知
+        if: success()
+        run: |
+          echo "✅ Context Forge ${{ needs.validate.outputs.version }} 发布成功！"
+          echo "PyPI: https://pypi.org/project/context-forge/${{ needs.validate.outputs.version_without_v }}"
+          echo "Docker: ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version_without_v }}"
+          echo "Release: https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.version }}"
+
+      - name: 发布失败通知
+        if: failure()
+        run: |
+          echo "❌ Context Forge ${{ needs.validate.outputs.version }} 发布失败！"
+          echo "请检查流水线日志：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

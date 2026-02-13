@@ -1,0 +1,242 @@
+# ============================================================
+# Context Forge 默认策略配置
+#
+# 此文件定义了上下文组装的全部策略参数。
+# 所有字段都有合理的默认值，您只需修改需要调整的部分。
+#
+# → 6.1.2.2 Policy-as-Code
+#
+# 使用方法：
+#   1. 复制到项目根目录：cp configs/default_policy.yaml context_forge.yaml
+#   2. 按需修改参数
+#   3. Context Forge 会自动加载项目根目录下的 context_forge.yaml
+#
+# 校验命令：context-forge validate context_forge.yaml
+# ============================================================
+
+version: "1.0"
+name: "default"
+description: "Context Forge 默认策略 — 覆盖 80% 的常见场景"
+
+# --- 预算分配策略 ---
+# → 6.2.2 预算分配策略（Budgeting）
+budget:
+  # 模型上下文窗口大小（Token 数）
+  # 会根据传入的 model 参数自动调整，通常无需手动设置
+  max_context_tokens: 128000
+
+  # 为模型输出预留的 Token 空间
+  # 包括：回答文本 + CoT 推理 + Tool Call 生成
+  output_reserved_tokens: 4096
+
+  # 为 Thinking Token 预留的空间（仅 Reasoning Models 需要）
+  # 如使用 o1/o3/R1 等模型，建议设为 8192~16384
+  thinking_reserved_tokens: 0
+
+  # 窗口饱和度阈值：超过此比例时触发自适应压缩
+  # 0.85 = 使用 85% 容量时开始压缩
+  saturation_threshold: 0.85
+
+  # 预算溢出策略：
+  #   truncate_lowest_priority - 截断最低优先级的 Segment（默认）
+  #   compress - 尝试压缩后再截断
+  #   error - 直接报错
+  overflow_strategy: "truncate_lowest_priority"
+
+  # 弹性区间配额比例（总和应为 1.0）
+  # 定义各类型 Segment 在弹性空间中的份额
+  elastic_ratios:
+    rag: 0.35          # RAG 检索片段
+    user: 0.15         # 用户消息
+    assistant: 0.25    # 助手回复（对话历史）
+    few_shot: 0.10     # 少样本示例
+    tool_result: 0.10  # 工具返回结果
+    tool_definition: 0.05  # 工具定义
+
+# --- 清洗策略 ---
+# → 6.4 上下文清洗与零信任安全
+sanitize:
+  # Unicode 归一化（NFC 标准化 + 不可见字符移除）
+  unicode_normalize: true
+
+  # HTML/Markdown 标签剥离
+  strip_html: true
+
+  # PII（个人身份信息）自动脱敏
+  # ⚠ 默认关闭，启用前请确认符合您的业务需求
+  pii_redaction: false
+
+  # Prompt Injection 检测
+  injection_detection: true
+
+  # Injection 检测后的处理策略：
+  #   warn_and_remove - 发出警告并移除该 Segment（默认）
+  #   error - 抛出 InjectionDetectedError
+  #   log_only - 仅记录日志，不做处理
+  on_injection: "warn_and_remove"
+
+  # 单个 Segment 的最大字符数（防止长度攻击）
+  max_segment_chars: 50000
+
+  # 允许的最大连续重复字符数
+  max_repeat_chars: 100
+
+  # 需要脱敏的 PII 类型（仅在 pii_redaction=true 时生效）
+  pii_patterns:
+    - phone     # 手机号
+    - email     # 邮箱
+    - id_card   # 身份证号
+
+  # Injection 检测级别：
+  #   heuristic - 基于规则的启发式检测（默认，零延迟）
+  #   classifier - 基于模型的分类器检测（需要 LLM，更准确）
+  injection_level: "heuristic"
+
+  # Injection 检测的置信度阈值（仅 classifier 模式）
+  # 0.7 = 置信度 > 70% 时判定为 Injection
+  injection_confidence_threshold: 0.7
+
+# --- 重排策略 ---
+# → 6.3.2 Select：选择性注入与架构决策
+rerank:
+  # MMR（最大边际相关性）多样性过滤
+  # ⚠ 注意：启用后会增加约 10-30ms 延迟（Segment < 500 时）
+  enable_mmr: false
+
+  # MMR 权衡参数（λ）：
+  #   0.0 = 仅考虑多样性，排除所有相似内容
+  #   1.0 = 仅考虑相关性，不做多样性过滤
+  #   0.7 = 平衡相关性和多样性（推荐）
+  mmr_lambda: 0.7
+
+  # 相似度阈值：Jaccard 相似度超过此值视为重复
+  similarity_threshold: 0.85
+
+  # 每种类型的最大 Segment 数（0 = 无限制）
+  # 例如设为 10 时，RAG 片段最多保留 10 个
+  max_per_type: 0
+
+  # 时效性加权：越新的 Segment 得分越高
+  enable_temporal_weighting: false
+
+  # 时效性衰减率（α）：
+  #   0.1 = 缓慢衰减（历史对话仍有较高权重）
+  #   0.5 = 快速衰减（优先最近对话）
+  temporal_decay_rate: 0.1
+
+  # 时效性最小权重：防止过度衰减导致历史内容完全丢失
+  temporal_min_weight: 0.3
+
+# --- 压缩策略 ---
+# → 6.2.4 + 6.3.3 压缩策略
+compress:
+  # 是否启用自适应压缩
+  enabled: true
+
+  # 默认压缩器：
+  #   truncation - 截断（不需要 LLM，速度最快）
+  #   summary - 摘要压缩（需要 LLM，效果最好）
+  #   dedup - 语义去重
+  default_compressor: "truncation"
+
+  # 触发压缩的饱和度阈值
+  saturation_trigger: 0.85
+
+  # 压缩时是否保护 must_keep 标记的 Segment
+  preserve_must_keep: true
+
+  # 压缩后 Segment 的最小 Token 数
+  min_segment_tokens: 50
+
+# --- 缓存策略 ---
+# → 6.2.3 缓存架构与复用优化
+cache:
+  # 是否启用缓存
+  enabled: true
+
+  # 缓存后端：memory / redis
+  backend: "memory"
+
+  # 是否启用 System Prompt 前缀缓存
+  prefix_cache: true
+
+  # 是否启用语义缓存（需要 embedding 模型）
+  semantic_cache: false
+
+  # 缓存过期时间（秒）
+  ttl_seconds: 3600
+
+  # 最大缓存条目数
+  max_entries: 1000
+
+  # Redis URL（仅在 backend=redis 时使用）
+  redis_url: "redis://localhost:6379/0"
+
+# --- 路由策略 ---
+# → 6.6 上下文路由与动态调度
+routing:
+  # 是否启用意图路由（默认关闭，使用单一模型）
+  enabled: false
+
+  # 默认模型
+  default_model: "gpt-4o"
+
+  # 路由器类型：rule_based / llm
+  router_type: "rule_based"
+
+  # 路由规则（仅在 enabled=true 时生效）
+  rules: []
+
+# --- 可观测性 ---
+# → 6.5 可观测性：快照、回归与指标
+observability:
+  # 是否为每次组装生成 Snapshot
+  snapshot_enabled: true
+
+  # 是否启用 OpenTelemetry Tracing
+  # ⚠ 启用前需配置 OTEL_EXPORTER_OTLP_ENDPOINT 环境变量
+  tracing_enabled: false
+
+  # 是否收集核心指标（饱和度、缓存命中率等）
+  metrics_enabled: true
+
+  # 导出格式：json / otlp
+  export_format: "json"
+
+  # Snapshot 存储目录
+  snapshot_dir: ".context_forge/snapshots"
+
+# --- 反模式检测 ---
+# → 6.7 反模式检测与诊断
+antipattern:
+  # 是否启用反模式检测
+  enabled: true
+
+  # 是否在每次 build() 时自动检测反模式
+  # ⚠ 启用后会增加 5-10ms 延迟
+  check_on_build: false
+
+  # 是否在检测到 CRITICAL 级别反模式时抛出异常
+  fail_on_critical: false
+
+  # --- 检测阈值 ---
+
+  # CRITICAL 优先级占比阈值
+  # 超过此值触发 OveruseCriticalRule (WARNING)
+  critical_ratio_threshold: 0.5
+
+  # 刚性预算占比阈值
+  # 超过此值触发 RigidBudgetTooLargeRule (WARNING)
+  rigid_budget_threshold: 0.7
+
+  # 压缩率阈值
+  # 低于此值触发 OverCompressionRule (WARNING)
+  compression_ratio_threshold: 0.1
+
+  # TTL 过期天数阈值
+  # 超过此天数触发 ExpiredDataRule (WARNING)
+  ttl_days_threshold: 30
+
+  # 路由有效性阈值
+  # 窗口差异小于此值触发 IneffectiveRoutingRule (INFO)
+  routing_effectiveness_threshold: 0.1

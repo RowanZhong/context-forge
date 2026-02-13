@@ -1,0 +1,204 @@
+# ============================================================
+# 成本优化策略
+#
+# 适用场景：大规模应用、成本敏感场景、SaaS 服务
+# 核心特性：意图路由、激进缓存、高压缩率、小窗口
+#
+# → 6.2.3 缓存架构与复用优化
+# → 6.6 上下文路由与动态调度
+# ============================================================
+
+version: "1.0"
+name: "cost_optimization"
+description: "成本优化策略 — 最小化 Token 消耗和 API 调用成本"
+
+# --- 预算分配策略 ---
+budget:
+  # 小窗口：64K（降低单次调用成本）
+  max_context_tokens: 64000
+
+  # Output 预留：适中
+  output_reserved_tokens: 2048
+
+  # Thinking 预留：不使用 Reasoning Models
+  thinking_reserved_tokens: 0
+
+  # 饱和度阈值：提前触发压缩（60%）
+  saturation_threshold: 0.60
+
+  # 溢出策略：激进压缩
+  overflow_strategy: "compress"
+
+  # 弹性区间配额：均衡分配
+  elastic_ratios:
+    user: 0.25
+    assistant: 0.25
+    rag: 0.20
+    summary: 0.15           # 摘要占比较高（节省空间）
+    few_shot: 0.10
+    tool_result: 0.05
+
+# --- 清洗策略 ---
+sanitize:
+  # 基础清洗
+  unicode_normalize: true
+  strip_html: true
+
+  # PII 脱敏：按需启用
+  pii_redaction: false
+
+  # Injection 检测：启用
+  injection_detection: true
+  on_injection: "warn_and_remove"
+
+  # 单 Segment 最大字符数：限制长度（节省 Token）
+  max_segment_chars: 5000
+
+  # 最大重复字符数
+  max_repeat_chars: 50
+
+  # Injection 检测级别：启发式（快速）
+  injection_level: "heuristic"
+
+# --- 重排策略 ---
+rerank:
+  # MMR：去重（减少 Token）
+  enable_mmr: true
+
+  # MMR 参数：更高的多样性（减少冗余）
+  mmr_lambda: 0.6         # 60% 相关性 + 40% 多样性
+
+  # 相似度阈值：更严格（0.80）
+  similarity_threshold: 0.80
+
+  # 每种类型最大数量：严格限制
+  max_per_type: 10        # RAG 片段最多 10 个
+
+  # 时效性加权：优先最新数据（减少历史对话）
+  enable_temporal_weighting: true
+  temporal_decay_rate: 0.25   # 快速衰减
+  temporal_min_weight: 0.10   # 旧数据权重很低
+
+# --- 压缩策略 ---
+compress:
+  # 启用激进压缩
+  enabled: true
+
+  # 默认压缩器：摘要压缩（高压缩率）
+  # ⚠️ 需要 LLM 调用，但整体仍节省成本（压缩比 > 5:1）
+  default_compressor: "summary"
+
+  # 触发压缩的饱和度阈值：60%（提前压缩）
+  saturation_trigger: 0.60
+
+  # 保护 must_keep 标记的 Segment（仅关键内容）
+  preserve_must_keep: true
+
+  # 压缩后最小 Token 数：允许更小（节省空间）
+  min_segment_tokens: 30
+
+# --- 缓存策略 ---
+cache:
+  # 启用激进缓存（最大化复用）
+  enabled: true
+
+  # 缓存后端：Redis（持久化，跨实例复用）
+  # ⚠️ 单机场景可以使用 memory
+  backend: "redis"
+
+  # 前缀缓存：必须启用（System Prompt 固定）
+  prefix_cache: true
+
+  # 语义缓存：启用（相似问题复用）
+  # ⚠️ 需要 embedding 模型，但整体节省成本
+  semantic_cache: true
+
+  # 缓存过期时间：24 小时（长期复用）
+  ttl_seconds: 86400
+
+  # 最大缓存条目数：5000 个（大容量）
+  max_entries: 5000
+
+  # Redis URL
+  redis_url: "redis://localhost:6379/0"
+
+# --- 路由策略 ---
+routing:
+  # 启用意图路由（核心成本优化手段）
+  enabled: true
+
+  # 默认模型：GPT-4o-mini（最便宜）
+  default_model: "gpt-4o-mini"
+
+  # 路由器类型：规则路由（确定性，无额外成本）
+  router_type: "rule_based"
+
+  # 路由规则：根据复杂度选择模型
+  rules:
+    # 简单问题 → GPT-4o-mini（成本 1/10）
+    - condition:
+        complexity: "simple"
+        input_tokens_lt: 1000
+      target_model: "gpt-4o-mini"
+      reason: "简单问题使用小模型，节省 90% 成本"
+
+    # 中等复杂度 → GPT-4o
+    - condition:
+        complexity: "medium"
+        input_tokens_lt: 5000
+      target_model: "gpt-4o"
+      reason: "中等问题使用标准模型"
+
+    # 复杂推理 → Claude Sonnet（仅在必要时）
+    - condition:
+        complexity: "complex"
+        requires_reasoning: true
+      target_model: "claude-sonnet-4-5"
+      reason: "复杂推理任务使用 Claude Sonnet"
+
+    # 编码任务 → GPT-4o（性价比高）
+    - condition:
+        task_type: "code_generation"
+      target_model: "gpt-4o"
+      reason: "编码任务使用 GPT-4o"
+
+    # 默认规则 → GPT-4o-mini
+    - condition:
+        default: true
+      target_model: "gpt-4o-mini"
+      reason: "默认使用最便宜的模型"
+
+# --- 可观测性 ---
+observability:
+  # 生成 Snapshot：便于成本分析
+  snapshot_enabled: true
+
+  # 不启用 Tracing（减少开销）
+  tracing_enabled: false
+
+  # 收集指标：必须（监控成本、缓存命中率、路由效率）
+  metrics_enabled: true
+
+  # 导出格式：JSON
+  export_format: "json"
+
+  # Snapshot 存储目录
+  snapshot_dir: ".context_forge/snapshots"
+
+# --- 反模式检测 ---
+antipattern:
+  # 启用反模式检测
+  enabled: true
+
+  # 在每次 build 时自动检测（监控成本浪费）
+  check_on_build: true
+
+  # 检测到 CRITICAL 时抛出异常（避免成本失控）
+  fail_on_critical: true
+
+  # 检测阈值（更严格）
+  critical_ratio_threshold: 0.3       # CRITICAL 占比 > 30% 报警
+  rigid_budget_threshold: 0.5         # 刚性预算 > 50% 报警
+  compression_ratio_threshold: 0.25   # 压缩率 < 25% 报警（压缩不足）
+  ttl_days_threshold: 1               # TTL > 1 天报警（缓存失效）
+  routing_effectiveness_threshold: 0.20  # 路由差异 < 20% 报警（路由无效）

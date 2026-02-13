@@ -1,0 +1,156 @@
+# ============================================================
+# 对话记忆管理策略
+#
+# 适用场景：多轮对话、聊天机器人、客服系统等
+# 核心特性：小窗口、高压缩、must_keep 保护、滚动摘要
+#
+# → 6.2.4 压缩策略
+# → 6.3.3 Compress：自适应压缩与滚动摘要
+# ============================================================
+
+version: "1.0"
+name: "conversation_memory"
+description: "对话记忆管理策略 — 在有限窗口内保留最大信息量"
+
+# --- 预算分配策略 ---
+budget:
+  # 小窗口场景：32K（适用于对话式模型）
+  max_context_tokens: 32000
+
+  # Output 预留：对话场景需要较多输出空间
+  output_reserved_tokens: 4096
+
+  # Thinking 预留：普通对话不需要
+  thinking_reserved_tokens: 0
+
+  # 饱和度阈值：提前触发压缩（70%）
+  saturation_threshold: 0.70
+
+  # 溢出策略：优先压缩，保留关键信息
+  overflow_strategy: "compress"
+
+  # 弹性区间配额：用户消息和助手回复各占 35%
+  elastic_ratios:
+    user: 0.35              # 用户消息（保留较多）
+    assistant: 0.35         # 助手回复（保留较多）
+    summary: 0.20           # 滚动摘要（重要）
+    rag: 0.05               # RAG 片段（少量）
+    tool_result: 0.05       # 工具结果
+
+# --- 清洗策略 ---
+sanitize:
+  # 对话内容清洗
+  unicode_normalize: true
+  strip_html: true
+
+  # PII 脱敏：聊天可能包含个人信息
+  pii_redaction: true
+
+  # Injection 检测：防止用户输入攻击
+  injection_detection: true
+  on_injection: "warn_and_remove"
+
+  # 单 Segment 最大字符数：防止单条消息过长
+  max_segment_chars: 5000
+
+  # 最大重复字符数
+  max_repeat_chars: 80
+
+  # PII 脱敏类型
+  pii_patterns:
+    - phone
+    - email
+    - id_card
+
+  # Injection 检测级别：启发式
+  injection_level: "heuristic"
+
+# --- 重排策略 ---
+rerank:
+  # 对话场景不需要 MMR（消息顺序重要）
+  enable_mmr: false
+
+  # 不限制每种类型的数量
+  max_per_type: 0
+
+  # 时效性加权：优先最近对话
+  enable_temporal_weighting: true
+
+  # 时效性衰减率：0.2 = 快速衰减（优先最近消息）
+  temporal_decay_rate: 0.20
+
+  # 时效性最小权重：旧消息保留 20% 权重
+  temporal_min_weight: 0.20
+
+# --- 压缩策略 ---
+compress:
+  # 启用自适应压缩：对话场景的核心功能
+  enabled: true
+
+  # 默认压缩器：摘要压缩（生成滚动摘要）
+  default_compressor: "summary"
+
+  # 触发压缩的饱和度阈值：70%（提前压缩）
+  saturation_trigger: 0.70
+
+  # 保护 must_keep 标记的 Segment（最近 N 轮对话）
+  preserve_must_keep: true
+
+  # 压缩后最小 Token 数：避免过度压缩
+  min_segment_tokens: 50
+
+# --- 缓存策略 ---
+cache:
+  # 启用缓存：System Prompt 复用
+  enabled: true
+
+  # 缓存后端：内存
+  backend: "memory"
+
+  # 前缀缓存：System Prompt 固定
+  prefix_cache: true
+
+  # 语义缓存：对话场景不适用
+  semantic_cache: false
+
+  # 缓存过期时间：30 分钟（会话级别）
+  ttl_seconds: 1800
+
+  # 最大缓存条目数：500 个会话
+  max_entries: 500
+
+# --- 路由策略 ---
+routing:
+  # 对话场景不需要路由
+  enabled: false
+
+  # 默认模型：GPT-4o
+  default_model: "gpt-4o"
+
+# --- 可观测性 ---
+observability:
+  # 生成 Snapshot：便于调试对话记忆
+  snapshot_enabled: true
+
+  # 收集指标：监控压缩率、窗口饱和度
+  metrics_enabled: true
+
+  # 导出格式：JSON
+  export_format: "json"
+
+  # Snapshot 存储目录
+  snapshot_dir: ".context_forge/snapshots"
+
+# --- 反模式检测 ---
+antipattern:
+  # 启用反模式检测
+  enabled: true
+
+  # 不在每次 build 时自动检测
+  check_on_build: false
+
+  # 检测阈值
+  critical_ratio_threshold: 0.5
+  rigid_budget_threshold: 0.7
+  compression_ratio_threshold: 0.20  # 对话允许较高压缩率
+  ttl_days_threshold: 1               # 对话 1 天过期提示

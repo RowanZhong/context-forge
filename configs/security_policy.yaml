@@ -1,0 +1,187 @@
+# ============================================================
+# 安全合规清洗策略
+#
+# 适用场景：金融、医疗、政务等高合规要求场景
+# 核心特性：严格清洗、PII 脱敏、Injection 拦截、审计日志
+#
+# → 6.4 上下文清洗与零信任安全
+# → 6.4.3 零信任清洗管道设计
+# ============================================================
+
+version: "1.0"
+name: "security_compliance"
+description: "安全合规策略 — 严格清洗与零信任原则"
+
+# --- 预算分配策略 ---
+budget:
+  # 标准窗口
+  max_context_tokens: 128000
+
+  # Output 预留
+  output_reserved_tokens: 4096
+
+  # Thinking 预留
+  thinking_reserved_tokens: 0
+
+  # 饱和度阈值
+  saturation_threshold: 0.85
+
+  # 溢出策略：拒绝而非截断（保证完整性）
+  overflow_strategy: "error"
+
+  # 弹性区间配额
+  elastic_ratios:
+    rag: 0.30
+    user: 0.20
+    assistant: 0.25
+    few_shot: 0.15
+    tool_result: 0.10
+
+# --- 清洗策略 ---
+sanitize:
+  # === 基础清洗 ===
+
+  # Unicode 归一化：防止编码攻击
+  unicode_normalize: true
+
+  # HTML 剥离：防止 XSS
+  strip_html: true
+
+  # === PII 脱敏 ===
+
+  # 启用 PII 脱敏：高合规场景必须
+  pii_redaction: true
+
+  # 需要脱敏的 PII 类型（全覆盖）
+  pii_patterns:
+    - phone           # 手机号
+    - email           # 邮箱
+    - id_card         # 身份证号
+    - address         # 地址
+    - bank_account    # 银行账号
+    - credit_card     # 信用卡号
+    - passport        # 护照号
+    - ssn             # 社保号
+
+  # === Injection 检测 ===
+
+  # 启用 Injection 检测
+  injection_detection: true
+
+  # Injection 检测后的处理策略：直接拒绝（error 模式）
+  # ⚠️ 安全场景不能容忍任何潜在攻击，必须拒绝
+  on_injection: "error"
+
+  # Injection 检测级别：分类器（更准确，需要 LLM）
+  # 如无 LLM 可用，自动降级到 heuristic
+  injection_level: "classifier"
+
+  # Injection 检测置信度阈值：0.5（更严格）
+  injection_confidence_threshold: 0.5
+
+  # === 长度防护 ===
+
+  # 单 Segment 最大字符数：防止 DoS 攻击
+  max_segment_chars: 20000
+
+  # 最大重复字符数：防止重复攻击
+  max_repeat_chars: 50
+
+# --- 重排策略 ---
+rerank:
+  # MMR：避免重复内容（减少攻击面）
+  enable_mmr: true
+
+  # MMR 参数
+  mmr_lambda: 0.7
+  similarity_threshold: 0.85
+
+  # 每种类型最大数量：限制单一来源占比
+  max_per_type: 15
+
+  # 时效性加权：优先最新数据
+  enable_temporal_weighting: true
+  temporal_decay_rate: 0.10
+  temporal_min_weight: 0.30
+
+# --- 压缩策略 ---
+compress:
+  # 启用压缩
+  enabled: true
+
+  # 默认压缩器：截断（不需要 LLM，安全）
+  # ⚠️ 安全场景避免使用 LLM 压缩（可能引入不可控内容）
+  default_compressor: "truncation"
+
+  # 触发压缩的饱和度阈值
+  saturation_trigger: 0.85
+
+  # 保护 must_keep 标记的 Segment
+  preserve_must_keep: true
+
+  # 压缩后最小 Token 数
+  min_segment_tokens: 50
+
+# --- 缓存策略 ---
+cache:
+  # 缓存：谨慎启用（可能泄露敏感信息）
+  # ⚠️ 如启用，必须使用加密缓存后端
+  enabled: false
+
+  # 缓存后端：内存（不持久化）
+  backend: "memory"
+
+  # 前缀缓存：System Prompt 可以缓存
+  prefix_cache: true
+
+  # 语义缓存：禁用（避免敏感信息泄露）
+  semantic_cache: false
+
+  # 缓存过期时间：5 分钟（短期）
+  ttl_seconds: 300
+
+  # 最大缓存条目数：100 个
+  max_entries: 100
+
+# --- 路由策略 ---
+routing:
+  # 路由：禁用（单一模型便于审计）
+  enabled: false
+
+  # 默认模型：GPT-4o
+  default_model: "gpt-4o"
+
+# --- 可观测性 ---
+observability:
+  # 生成 Snapshot：必须（合规审计要求）
+  snapshot_enabled: true
+
+  # 启用 Tracing：必须（追踪每次处理）
+  # ⚠️ 需要配置 OTEL_EXPORTER_OTLP_ENDPOINT
+  tracing_enabled: true
+
+  # 收集指标：必须（监控异常行为）
+  metrics_enabled: true
+
+  # 导出格式：OTLP（标准化）
+  export_format: "otlp"
+
+  # Snapshot 存储目录（必须定期归档）
+  snapshot_dir: ".context_forge/snapshots"
+
+# --- 反模式检测 ---
+antipattern:
+  # 启用反模式检测
+  enabled: true
+
+  # 在每次 build 时自动检测（安全场景必须）
+  check_on_build: true
+
+  # 检测到 CRITICAL 级别反模式时抛出异常
+  fail_on_critical: true
+
+  # 检测阈值（更严格）
+  critical_ratio_threshold: 0.3       # CRITICAL 占比 > 30% 报警
+  rigid_budget_threshold: 0.6         # 刚性预算 > 60% 报警
+  compression_ratio_threshold: 0.10   # 压缩率 < 10% 报警（避免过度压缩）
+  ttl_days_threshold: 7               # TTL > 7 天报警（数据时效性）

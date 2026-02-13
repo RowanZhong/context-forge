@@ -1,0 +1,166 @@
+# ============================================================
+# RAG 场景优化策略
+#
+# 适用场景：文档问答、知识库检索、技术支持等
+# 核心特性：MMR 去重、PII 脱敏、时效性加权、高相关性优先
+#
+# → 6.3.2 Select：选择性注入与架构决策
+# → 6.4 上下文清洗与零信任安全
+# ============================================================
+
+version: "1.0"
+name: "rag_optimized"
+description: "RAG 场景优化策略 — 平衡相关性、多样性与安全性"
+
+# --- 预算分配策略 ---
+budget:
+  # RAG 场景通常需要较大窗口以容纳检索片段
+  max_context_tokens: 128000
+
+  # Output 预留：问答场景通常需要较长回答
+  output_reserved_tokens: 8192
+
+  # Thinking 预留：RAG 不需要深度推理
+  thinking_reserved_tokens: 0
+
+  # 饱和度阈值：RAG 片段较多时提前触发压缩
+  saturation_threshold: 0.80
+
+  # 溢出策略：优先压缩低相关性片段，而非简单截断
+  overflow_strategy: "compress"
+
+  # 弹性区间配额：RAG 片段占主导（50%）
+  elastic_ratios:
+    rag: 0.50               # RAG 检索片段占 50%
+    user: 0.10              # 用户问题
+    assistant: 0.15         # 历史回答（保留少量上下文）
+    few_shot: 0.15          # 少样本示例（重要）
+    tool_result: 0.05       # 工具结果
+    tool_definition: 0.05   # 工具定义
+
+# --- 清洗策略 ---
+sanitize:
+  # RAG 内容来自外部知识库，必须严格清洗
+  unicode_normalize: true
+  strip_html: true
+
+  # PII 脱敏：知识库可能包含敏感信息
+  pii_redaction: true
+
+  # Injection 检测：防止恶意内容注入
+  injection_detection: true
+  on_injection: "warn_and_remove"
+
+  # 单 Segment 最大字符数：防止单个文档过长
+  max_segment_chars: 10000
+
+  # 最大重复字符数：防止无意义重复
+  max_repeat_chars: 50
+
+  # 需要脱敏的 PII 类型
+  pii_patterns:
+    - phone
+    - email
+    - id_card
+    - address
+
+  # Injection 检测级别：启发式（快速）
+  injection_level: "heuristic"
+
+# --- 重排策略 ---
+rerank:
+  # MMR 多样性过滤：避免检索到大量相似文档
+  enable_mmr: true
+
+  # MMR 参数：0.7 = 70% 相关性 + 30% 多样性
+  mmr_lambda: 0.7
+
+  # 相似度阈值：Jaccard 相似度 > 0.85 视为重复
+  similarity_threshold: 0.85
+
+  # 每种类型最大数量：RAG 片段最多 20 个
+  max_per_type: 20
+
+  # 时效性加权：优先最新文档
+  enable_temporal_weighting: true
+
+  # 时效性衰减率：0.15 = 中等衰减
+  temporal_decay_rate: 0.15
+
+  # 时效性最小权重：旧文档仍保留 40% 权重
+  temporal_min_weight: 0.40
+
+# --- 压缩策略 ---
+compress:
+  # 启用自适应压缩
+  enabled: true
+
+  # 默认压缩器：摘要压缩（需要 LLM，效果最好）
+  # 如无 LLM 可用，自动降级到 truncation
+  default_compressor: "summary"
+
+  # 触发压缩的饱和度阈值：80%
+  saturation_trigger: 0.80
+
+  # 保护 must_keep 标记的 Segment
+  preserve_must_keep: true
+
+  # 压缩后最小 Token 数：避免过度压缩导致信息丢失
+  min_segment_tokens: 100
+
+# --- 缓存策略 ---
+cache:
+  # 启用缓存：RAG 场景常有重复检索
+  enabled: true
+
+  # 缓存后端：内存（单机） / Redis（分布式）
+  backend: "memory"
+
+  # 前缀缓存：System Prompt + Tool Definition 复用
+  prefix_cache: true
+
+  # 语义缓存：相似问题复用检索结果
+  # ⚠️ 需要 embedding 模型，启用后会增加延迟
+  semantic_cache: false
+
+  # 缓存过期时间：1 小时（知识库更新频率决定）
+  ttl_seconds: 3600
+
+  # 最大缓存条目数：1000 个
+  max_entries: 1000
+
+# --- 路由策略 ---
+routing:
+  # RAG 场景通常不需要路由（使用单一模型）
+  enabled: false
+
+  # 默认模型：GPT-4o（高质量问答）
+  default_model: "gpt-4o"
+
+# --- 可观测性 ---
+observability:
+  # 生成 Snapshot：便于调试检索质量
+  snapshot_enabled: true
+
+  # 收集指标：监控饱和度、缓存命中率、MMR 过滤率
+  metrics_enabled: true
+
+  # 导出格式：JSON
+  export_format: "json"
+
+  # Snapshot 存储目录
+  snapshot_dir: ".context_forge/snapshots"
+
+# --- 反模式检测 ---
+antipattern:
+  # 启用反模式检测
+  enabled: true
+
+  # 不在每次 build 时自动检测（避免延迟）
+  check_on_build: false
+
+  # 检测阈值
+  critical_ratio_threshold: 0.5
+  rigid_budget_threshold: 0.7
+  compression_ratio_threshold: 0.15  # RAG 允许较高压缩率
+  ttl_days_threshold: 7               # RAG 文档 7 天过期提示
