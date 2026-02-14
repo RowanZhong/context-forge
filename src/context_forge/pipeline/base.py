@@ -23,11 +23,13 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from context_forge.models.audit import AuditEntry
 from context_forge.models.budget import BudgetPolicy
-from context_forge.models.segment import Segment
+
+if TYPE_CHECKING:
+    from context_forge.models.audit import AuditEntry
+    from context_forge.models.segment import Segment
 
 logger = logging.getLogger(__name__)
 
@@ -336,10 +338,29 @@ def create_default_pipeline(policy: Any = None) -> Pipeline:
         from context_forge.compress.engine import CompressEngine
         from context_forge.pipeline.compress_stage import CompressStage
 
+        # 根据配置选择默认压缩器
+        default_compressor = None
+        compressor_name = getattr(policy.compress, "default_compressor", "truncation")
+        if compressor_name == "summary":
+            # 尝试使用 LLM 摘要压缩器，降级为截断
+            try:
+                from context_forge.compress.summary import LLMSummaryCompressor
+                default_compressor = LLMSummaryCompressor()
+                logger.info("使用 LLM 摘要压缩器（需要 LLM Provider）")
+            except Exception:
+                logger.warning(
+                    "default_compressor='summary' 需要 LLM 支持，"
+                    "当前降级为 truncation 模式。"
+                )
+        elif compressor_name == "dedup":
+            from context_forge.compress.dedup import DedupCompressor
+            default_compressor = DedupCompressor()
+
         compress_engine = CompressEngine(
             saturation_threshold=policy.compress.saturation_trigger,
             preserve_must_keep=policy.compress.preserve_must_keep,
             min_segment_tokens=policy.compress.min_segment_tokens,
+            default_compressor=default_compressor,
         )
         stages.append(CompressStage(engine=compress_engine))
 

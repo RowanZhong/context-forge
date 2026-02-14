@@ -288,11 +288,18 @@ def create_budget_table(budget: dict[str, Any]) -> Table:
     total = budget.get("total_budget", 0)
 
     # 添加核心指标
+    content_budget = budget.get("content_budget", 0)
+    total_used = budget.get("total_used", 0)
+    remaining = total - total_used
+
+    def _pct(value: int | float) -> float:
+        return value / total * 100 if total > 0 else 0
+
     rows = [
         ("总预算", budget.get("total_budget", 0), 100.0),
-        ("内容预算", budget.get("content_budget", 0), budget.get("content_budget", 0) / total * 100 if total > 0 else 0),
-        ("已使用", budget.get("total_used", 0), budget.get("total_used", 0) / total * 100 if total > 0 else 0),
-        ("剩余", total - budget.get("total_used", 0), (total - budget.get("total_used", 0)) / total * 100 if total > 0 else 0),
+        ("内容预算", content_budget, _pct(content_budget)),
+        ("已使用", total_used, _pct(total_used)),
+        ("剩余", remaining, _pct(remaining)),
     ]
 
     for name, tokens, percent in rows:

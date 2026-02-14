@@ -692,7 +692,7 @@ class TestObservabilityMethodsFixed:
             # format_json() is sync and returns a dict
             mock_diff_instance.format_json = MagicMock(return_value={"changes": []})
 
-            diff_result = await forge.diff("snap_1", "snap_2")
+            diff_result = await forge.diff_snapshots("snap_1", "snap_2")
 
             assert isinstance(diff_result, dict)
             mock_snapshot_manager.load.assert_called()
@@ -700,7 +700,7 @@ class TestObservabilityMethodsFixed:
     async def test_golden_record_method_with_correct_import(
         self, mock_snapshot_manager: MagicMock
     ) -> None:
-        """测试 golden_record() 方法的正确导入路径"""
+        """测试 validate_against_golden() 方法的正确导入路径"""
         import tempfile
         import yaml
 
@@ -740,7 +740,7 @@ class TestObservabilityMethodsFixed:
             # format_json() is sync and returns a dict
             mock_diff_instance.format_json = MagicMock(return_value={"summary": {}, "entries": []})
 
-            result = await forge.golden_record("golden_snap", context)
+            result = await forge.validate_against_golden("golden_snap", context)
 
             assert isinstance(result, dict)
             assert result["passed"] is True  # Should be True because entries is empty

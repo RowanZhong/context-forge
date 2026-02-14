@@ -53,21 +53,23 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from context_forge.config.defaults import resolve_model
 from context_forge.config.loader import load_policy
-from context_forge.config.schema import PolicyConfig
 from context_forge.facade_observability import ObservabilityMixin
 from context_forge.models.budget import BudgetAllocation, BudgetPolicy
 from context_forge.models.context_package import ContextPackage
 from context_forge.models.control import ControlFlags
 from context_forge.models.metadata import SegmentMetadata
 from context_forge.models.provenance import Provenance, SourceType
-from context_forge.models.routing import RoutingDecision
 from context_forge.models.segment import Priority, Segment, SegmentType
 from context_forge.pipeline.base import Pipeline, PipelineContext, create_default_pipeline
 from context_forge.tokenizer.registry import get_tokenizer
+
+if TYPE_CHECKING:
+    from context_forge.config.schema import PolicyConfig
+    from context_forge.models.routing import RoutingDecision
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +250,7 @@ class ContextForge(ObservabilityMixin):
     async def build(
         self,
         system_prompt: str = "",
-        messages: list[dict[str, str]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
         rag_chunks: list[dict[str, Any]] | None = None,
         tools: list[dict[str, Any]] | None = None,
         few_shot_examples: list[dict[str, str]] | None = None,
@@ -331,12 +333,6 @@ class ContextForge(ObservabilityMixin):
             routing_decision = self._router.route(routing_context)
             assert routing_decision is not None  # 类型守卫
             target_model = routing_decision.selected_model.model_id
-            # [DX Decision] RoutingDecision 暂不支持 budget_adjustment，
-            # 可在后续版本扩展以支持动态预算调整
-            if hasattr(routing_decision, 'budget_adjustment') and routing_decision.budget_adjustment:
-                adjusted_budget_policy = self._budget_policy.model_copy(
-                    update=routing_decision.budget_adjustment
-                )
 
         # 第三步：检查缓存（如果启用）
         cache_key = None
@@ -362,17 +358,26 @@ class ContextForge(ObservabilityMixin):
             cached_entry = await self._cache_manager.get(cache_key)
             if cached_entry:
                 if self._debug:
-                    logger.debug(f"缓存命中：{cache_key[:16]}...")
+                    logger.debug("缓存命中：%s...", cache_key[:16])
                 # 记录缓存命中指标
                 if self._metrics_collector:
                     self._metrics_collector.record("cache_hit", 1.0, tags={"model": target_model})
-                # 反序列化 ContextPackage
-                cached_dict = json.loads(cached_entry.value)
-                # 简化：直接返回重新构建的 package
-                # 🏭 生产提示：应该实现 ContextPackage.from_dict() 方法
-                # 这里为了向后兼容，暂时跳过缓存（在测试中禁用）
-                if self._debug:
-                    logger.debug("缓存命中，但反序列化暂未实现，继续构建")
+                # 反序列化 ContextPackage 并直接返回
+                # [Design Decision] 缓存命中时跳过整个 Pipeline（6 个阶段），
+                # 显著降低延迟和计算开销。缓存写入时使用 to_cache_dict() 保留完整内容。
+                try:
+                    cached_dict = json.loads(cached_entry.value)
+                    cached_package = ContextPackage.from_cache_dict(cached_dict)
+                    if self._debug:
+                        logger.debug("缓存命中，从缓存恢复 ContextPackage 成功")
+                    return cached_package
+                except Exception as e:
+                    # 缓存反序列化失败时优雅降级：继续走完整 Pipeline
+                    logger.warning("缓存反序列化失败，继续构建：%s", e)
+                    if self._metrics_collector:
+                        self._metrics_collector.record(
+                            "cache_deserialize_error", 1.0, tags={"model": target_model}
+                        )
 
         # 第四步：创建 Pipeline 上下文
         pipeline_context = PipelineContext(
@@ -420,15 +425,17 @@ class ContextForge(ObservabilityMixin):
 
             from context_forge.cache.base import CacheEntry
 
-            # 序列化 ContextPackage
-            package_dict = package.to_snapshot_dict()
+            # [Design Decision] 使用 to_cache_dict() 而非 to_snapshot()：
+            # to_cache_dict() 保留完整 Segment 内容（不做 200 字符截断），
+            # 确保缓存命中后能精确重建 ContextPackage。
+            package_dict = package.to_cache_dict()
             # 使用 default=str 处理日期时间等无法序列化的对象
             cache_entry = CacheEntry(
                 value=json.dumps(package_dict, ensure_ascii=False, default=str)
             )
             await self._cache_manager.set(cache_key, cache_entry)
             if self._debug:
-                logger.debug(f"缓存保存：{cache_key[:16]}...")
+                logger.debug("缓存保存：%s...", cache_key[:16])
 
         # 第八步：保存快照（如果启用）
         if self._snapshot_manager:
@@ -450,8 +457,14 @@ class ContextForge(ObservabilityMixin):
                 from context_forge.antipattern.base import AntiPatternSeverity
 
                 # 统计各级别问题数量
-                critical_count = len([r for r in antipattern_results if r.severity == AntiPatternSeverity.CRITICAL])
-                warning_count = len([r for r in antipattern_results if r.severity == AntiPatternSeverity.WARNING])
+                critical_count = len([
+                    r for r in antipattern_results
+                    if r.severity == AntiPatternSeverity.CRITICAL
+                ])
+                warning_count = len([
+                    r for r in antipattern_results
+                    if r.severity == AntiPatternSeverity.WARNING
+                ])
 
                 # 发出警告
                 warnings.warn(
@@ -478,7 +491,7 @@ class ContextForge(ObservabilityMixin):
     def build_sync(
         self,
         system_prompt: str = "",
-        messages: list[dict[str, str]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
         rag_chunks: list[dict[str, Any]] | None = None,
         tools: list[dict[str, Any]] | None = None,
         few_shot_examples: list[dict[str, str]] | None = None,
@@ -540,10 +553,10 @@ class ContextForge(ObservabilityMixin):
     def _prepare_segments(
         self,
         system_prompt: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         rag_chunks: list[dict[str, Any]],
         tools: list[dict[str, Any]],
-        few_shot_examples: list[dict[str, str]],
+        few_shot_examples: list[dict[str, Any]],
         state: dict[str, Any] | None,
         extra_segments: list[Segment],
         current_turn: int,
@@ -611,19 +624,34 @@ class ContextForge(ObservabilityMixin):
         for i, msg in enumerate(messages):
             role = msg.get("role", "user")
             content = msg.get("content", "")
+            must_keep = bool(msg.get("must_keep", False))
             msg_type = {
                 "user": SegmentType.USER,
                 "assistant": SegmentType.ASSISTANT,
                 "system": SegmentType.SYSTEM,
             }.get(role, SegmentType.USER)
 
+            # [Design Decision] 支持通过 must_keep 标记保护关键消息
+            # 标记为 must_keep 的消息会获得 HIGH 优先级，且不可压缩
+            msg_priority = Priority.HIGH if must_keep else Priority.MEDIUM
+            msg_control = ControlFlags(
+                must_keep=must_keep,
+                compressible=not must_keep,
+            ) if must_keep else ControlFlags()
+
             segments.append(Segment(
                 type=msg_type,
                 content=content,
                 role=role,
+                priority=msg_priority,
+                control=msg_control,
                 provenance=Provenance(
                     source_id=f"message_{i}",
-                    source_type=SourceType.USER_INPUT if role == "user" else SourceType.SYSTEM_CONFIG,
+                    source_type=(
+                        SourceType.USER_INPUT
+                        if role == "user"
+                        else SourceType.SYSTEM_CONFIG
+                    ),
                 ),
                 metadata=SegmentMetadata(turn_number=i // 2),
             ))
@@ -632,7 +660,11 @@ class ContextForge(ObservabilityMixin):
         for i, chunk in enumerate(rag_chunks):
             content = chunk.get("content", "") if isinstance(chunk, dict) else str(chunk)
             score = chunk.get("score", 0.0) if isinstance(chunk, dict) else 0.0
-            source_id = chunk.get("source_id", f"rag_{i}") if isinstance(chunk, dict) else f"rag_{i}"
+            source_id = (
+                chunk.get("source_id", f"rag_{i}")
+                if isinstance(chunk, dict)
+                else f"rag_{i}"
+            )
             uri = chunk.get("uri") if isinstance(chunk, dict) else None
 
             segments.append(Segment(
@@ -743,7 +775,9 @@ class ContextForge(ObservabilityMixin):
             "rigid_budget_threshold": self._policy.antipattern.rigid_budget_threshold,
             "compression_ratio_threshold": self._policy.antipattern.compression_ratio_threshold,
             "ttl_days_threshold": self._policy.antipattern.ttl_days_threshold,
-            "routing_effectiveness_threshold": self._policy.antipattern.routing_effectiveness_threshold,
+            "routing_effectiveness_threshold": (
+                self._policy.antipattern.routing_effectiveness_threshold
+            ),
         }
 
         context = DetectionContext(

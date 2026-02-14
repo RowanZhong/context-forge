@@ -22,9 +22,10 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from context_forge.models.context_package import ContextPackage
+if TYPE_CHECKING:
+    from context_forge.models.context_package import ContextPackage
 
 
 @dataclass

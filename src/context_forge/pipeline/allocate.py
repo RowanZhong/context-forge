@@ -22,11 +22,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from context_forge.models.segment import Segment
-from context_forge.pipeline.base import PipelineContext
-
 if TYPE_CHECKING:
     from context_forge.budget.manager import BudgetManager
+    from context_forge.models.segment import Segment
+    from context_forge.pipeline.base import PipelineContext
 
 logger = logging.getLogger(__name__)
 

@@ -310,7 +310,9 @@ def create_app(
             # 序列化 ContextPackage
             # 统计审计日志中的决策类型
             from collections import Counter
-            decision_counts: Counter[str] = Counter(entry.decision.value for entry in package.audit_log)
+            decision_counts: Counter[str] = Counter(
+                entry.decision.value for entry in package.audit_log
+            )
 
             data: dict[str, Any] = {
                 "segments": [
@@ -383,7 +385,11 @@ def create_app(
                 error=f"列出快照失败: {e!s}",
             )
 
-    @app.get("/snapshots/{snapshot_id}", response_model=SnapshotDetailResponse, summary="查看快照详情")
+    @app.get(
+        "/snapshots/{snapshot_id}",
+        response_model=SnapshotDetailResponse,
+        summary="查看快照详情",
+    )
     async def get_snapshot(snapshot_id: str) -> SnapshotDetailResponse:
         """获取指定快照的详细信息。"""
         try:
@@ -399,7 +405,11 @@ def create_app(
                     {
                         "id": seg.id,
                         "type": seg.type.value,
-                        "content": seg.content[:100] + "..." if len(seg.content) > 100 else seg.content,
+                        "content": (
+                            seg.content[:100] + "..."
+                            if len(seg.content) > 100
+                            else seg.content
+                        ),
                         "token_count": seg.token_count,
                     }
                     for seg in snapshot.package.segments
@@ -431,12 +441,18 @@ def create_app(
             try:
                 snapshot_1 = await manager.load(request.snapshot_id_1)
             except Exception as e:
-                raise HTTPException(status_code=404, detail=f"快照 '{request.snapshot_id_1}' 不存在") from e
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"快照 '{request.snapshot_id_1}' 不存在",
+                ) from e
 
             try:
                 snapshot_2 = await manager.load(request.snapshot_id_2)
             except Exception as e:
-                raise HTTPException(status_code=404, detail=f"快照 '{request.snapshot_id_2}' 不存在") from e
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"快照 '{request.snapshot_id_2}' 不存在",
+                ) from e
 
             # 使用 DiffEngine 比对
             diff_engine = DiffEngine()
@@ -541,7 +557,10 @@ def create_app(
                 try:
                     snapshot = await manager.load(request.snapshot_id)
                 except Exception as e:
-                    raise HTTPException(status_code=404, detail=f"快照 '{request.snapshot_id}' 不存在") from e
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"快照 '{request.snapshot_id}' 不存在",
+                    ) from e
 
                 # 使用 detect_from_package 方法
                 detector = create_default_detector(config=request.config)
@@ -559,8 +578,14 @@ def create_app(
             data = {
                 "total_issues": len(results),
                 "by_severity": {
-                    "CRITICAL": len([r for r in results if r.severity == AntiPatternSeverity.CRITICAL]),
-                    "WARNING": len([r for r in results if r.severity == AntiPatternSeverity.WARNING]),
+                    "CRITICAL": len([
+                        r for r in results
+                        if r.severity == AntiPatternSeverity.CRITICAL
+                    ]),
+                    "WARNING": len([
+                        r for r in results
+                        if r.severity == AntiPatternSeverity.WARNING
+                    ]),
                     "INFO": len([r for r in results if r.severity == AntiPatternSeverity.INFO]),
                 },
                 "issues": [
@@ -598,7 +623,10 @@ def create_app(
             try:
                 snapshot = await manager.load(request.snapshot_id)
             except Exception as e:
-                raise HTTPException(status_code=404, detail=f"快照 '{request.snapshot_id}' 不存在") from e
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"快照 '{request.snapshot_id}' 不存在",
+                ) from e
 
             # 🏭 生产提示：这里应实现真实的 Golden Case 存储逻辑
             # 目前我们将快照保存为一个特殊的 Golden Case
@@ -649,7 +677,12 @@ def create_app(
             try:
                 current_snapshot = await manager.load(request.current_snapshot_id)
             except Exception as e:
-                raise HTTPException(status_code=404, detail=f"快照 '{request.current_snapshot_id}' 不存在") from e
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"快照 '{request.current_snapshot_id}' 不存在"
+                    ),
+                ) from e
 
             # 使用 DiffEngine 比对
             diff_engine = DiffEngine()

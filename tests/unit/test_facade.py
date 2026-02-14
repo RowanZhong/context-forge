@@ -473,7 +473,7 @@ class TestFacadeObservability:
         mock_metrics_collector.collect_from_package.assert_called()
 
     async def test_snapshot_method(self, mock_snapshot_manager: MagicMock) -> None:
-        """测试 snapshot() 便捷方法。"""
+        """测试 save_snapshot() 便捷方法。"""
         mock_snapshot_manager.save = AsyncMock(return_value="snap_123")
 
         forge = ContextForge(
@@ -486,12 +486,12 @@ class TestFacadeObservability:
             messages=[{"role": "user", "content": "问题"}],
         )
 
-        snapshot_id = await forge.snapshot(context)
+        snapshot_id = await forge.save_snapshot(context)
 
         assert snapshot_id == "snap_123"
 
     async def test_snapshot_without_manager_raises_error(self) -> None:
-        """测试在快照管理器未启用时调用 snapshot() 抛异常。"""
+        """测试在快照管理器未启用时调用 save_snapshot() 抛异常。"""
         import tempfile
         import yaml
 
@@ -512,10 +512,10 @@ class TestFacadeObservability:
         )
 
         with pytest.raises(RuntimeError):
-            await forge.snapshot(context)
+            await forge.save_snapshot(context)
 
     async def test_diff_method(self, mock_snapshot_manager: MagicMock) -> None:
-        """测试 diff() 便捷方法。"""
+        """测试 diff_snapshots() 便捷方法。"""
         import tempfile
         import yaml
 
@@ -549,12 +549,12 @@ class TestFacadeObservability:
             mock_diff_instance.format_json = MagicMock(return_value={"changes": []})
             mock_diff_engine.return_value = mock_diff_instance
 
-            diff_result = await forge.diff("snap_1", "snap_2")
+            diff_result = await forge.diff_snapshots("snap_1", "snap_2")
 
             assert isinstance(diff_result, dict)
 
     async def test_diff_without_manager_raises_error(self) -> None:
-        """测试在快照管理器未启用时调用 diff() 抛异常。"""
+        """测试在快照管理器未启用时调用 diff_snapshots() 抛异常。"""
         import tempfile
         import yaml
 
@@ -570,10 +570,10 @@ class TestFacadeObservability:
         forge = ContextForge(model="gpt-4o", policy_path=policy_path)
 
         with pytest.raises(RuntimeError):
-            await forge.diff("snap_1", "snap_2")
+            await forge.diff_snapshots("snap_1", "snap_2")
 
     async def test_golden_record_method(self, mock_snapshot_manager: MagicMock) -> None:
-        """测试 golden_record() 便捷方法。"""
+        """测试 validate_against_golden() 便捷方法。"""
         import tempfile
         import yaml
 
@@ -612,7 +612,7 @@ class TestFacadeObservability:
             mock_diff_instance.format_json = MagicMock(return_value={"summary": {}, "entries": []})
             mock_diff_engine.return_value = mock_diff_instance
 
-            result = await forge.golden_record("golden_snap", context)
+            result = await forge.validate_against_golden("golden_snap", context)
 
             # Result should include "passed": True (added by the method)
             assert isinstance(result, dict)
@@ -620,7 +620,7 @@ class TestFacadeObservability:
             assert result["passed"] is True
 
     async def test_golden_record_without_manager_raises_error(self) -> None:
-        """测试在快照管理器未启用时调用 golden_record() 抛异常。"""
+        """测试在快照管理器未启用时调用 validate_against_golden() 抛异常。"""
         import tempfile
         import yaml
 
@@ -641,7 +641,7 @@ class TestFacadeObservability:
         )
 
         with pytest.raises(RuntimeError):
-            await forge.golden_record("golden_snap", context)
+            await forge.validate_against_golden("golden_snap", context)
 
 
 # === build_sync() 测试 ===

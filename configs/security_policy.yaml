@@ -54,14 +54,13 @@ sanitize:
 
   # 需要脱敏的 PII 类型（全覆盖）
   pii_patterns:
-    - phone           # 手机号
-    - email           # 邮箱
-    - id_card         # 身份证号
-    - address         # 地址
-    - bank_account    # 银行账号
-    - credit_card     # 信用卡号
-    - passport        # 护照号
-    - ssn             # 社保号
+    - phone           # 手机号（138****8000）
+    - email           # 邮箱（a***b@example.com）
+    - id_card         # 身份证号（110101********1234）
+    - bank_card       # 银行卡号（6225********1234）
+    - ip_address      # IP 地址（192.*.*.*）
+    - url             # URL（[REDACTED_URL]）
+    # 🏭 生产提示：address / passport / ssn 需扩展 PIIType 枚举后启用
 
   # === Injection 检测 ===
 

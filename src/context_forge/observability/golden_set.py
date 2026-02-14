@@ -19,9 +19,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from context_forge.models.context_package import ContextPackage
+if TYPE_CHECKING:
+    from context_forge.models.context_package import ContextPackage
 
 
 class ComparisonOperator(str, Enum):
@@ -468,7 +469,12 @@ class GoldenSetRunner:
         if delta_percent <= tolerance:
             return True, f"符合预期（差异 {delta_percent * 100:.1f}%）"
         else:
-            return False, f"超出容差（期望 {expected},实际 {actual},差异 {delta_percent * 100:.1f}%）"
+            pct = delta_percent * 100
+            return False, (
+                f"超出容差（期望 {expected},"
+                f"实际 {actual},"
+                f"差异 {pct:.1f}%）"
+            )
 
     def _match_tags(self, case_tags: dict[str, str], filter_tags: dict[str, str]) -> bool:
         """检查用例的标签是否匹配过滤条件。"""

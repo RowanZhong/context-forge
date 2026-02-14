@@ -126,9 +126,9 @@ async def main(mock: bool = True):
                 created_at=now - timedelta(minutes=30),
             ),
             metadata=SegmentMetadata(
-                agent_name="Planner",
                 turn_number=1,
-                timestamp=now - timedelta(minutes=30),
+                injected_at=now - timedelta(minutes=30),
+                debug_labels={"agent_name": "Planner"},
             ),
         ),
     ]
@@ -195,9 +195,9 @@ async def main(mock: bool = True):
                 created_at=now - timedelta(minutes=10),
             ),
             metadata=SegmentMetadata(
-                agent_name="Executor",
                 turn_number=2,
-                timestamp=now - timedelta(minutes=10),
+                injected_at=now - timedelta(minutes=10),
+                debug_labels={"agent_name": "Executor"},
             ),
         ),
     ]
@@ -270,9 +270,9 @@ OK 优点：
                 created_at=now - timedelta(minutes=5),
             ),
             metadata=SegmentMetadata(
-                agent_name="Reviewer",
                 turn_number=3,
-                timestamp=now - timedelta(minutes=5),
+                injected_at=now - timedelta(minutes=5),
+                debug_labels={"agent_name": "Reviewer"},
             ),
         ),
     ]
@@ -405,7 +405,7 @@ OK 优点：
                 handoff_events.append({
                     "from": agent_name,
                     "to": seg.control.handoff_to,
-                    "time": seg.metadata.timestamp if seg.metadata else now,
+                    "time": seg.metadata.injected_at if seg.metadata else now,
                     "content": truncate_text(seg.content, 50),
                 })
 

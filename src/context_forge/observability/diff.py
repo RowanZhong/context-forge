@@ -22,10 +22,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from context_forge.models.context_package import ContextPackage
-from context_forge.models.segment import Segment
+if TYPE_CHECKING:
+    from context_forge.models.context_package import ContextPackage
+    from context_forge.models.segment import Segment
 
 
 class DiffType(str, Enum):
@@ -334,7 +335,11 @@ class DiffEngine:
                         path=f"segments[{seg_id}]",
                         old_value=None,
                         new_value=seg.content[:100],
-                        description=f"添加 Segment {seg_id} (type={seg.type.value}, {seg.token_count} tokens)",
+                        description=(
+                            f"添加 Segment {seg_id} "
+                            f"(type={seg.type.value}, "
+                            f"{seg.token_count} tokens)"
+                        ),
                     )
                 )
 
@@ -347,7 +352,11 @@ class DiffEngine:
                         path=f"segments[{seg_id}]",
                         old_value=seg.content[:100],
                         new_value=None,
-                        description=f"删除 Segment {seg_id} (type={seg.type.value}, {seg.token_count} tokens)",
+                        description=(
+                            f"删除 Segment {seg_id} "
+                            f"(type={seg.type.value}, "
+                            f"{seg.token_count} tokens)"
+                        ),
                     )
                 )
 
@@ -410,7 +419,10 @@ class DiffEngine:
                     path="budget.total_budget",
                     old_value=old_budget.total_budget,
                     new_value=new_budget.total_budget,
-                    description=f"总预算从 {old_budget.total_budget:,} 变为 {new_budget.total_budget:,}",
+                    description=(
+                        f"总预算从 {old_budget.total_budget:,} "
+                        f"变为 {new_budget.total_budget:,}"
+                    ),
                 )
             )
 
@@ -422,7 +434,10 @@ class DiffEngine:
                     path="budget.rigid_used",
                     old_value=old_budget.rigid_used,
                     new_value=new_budget.rigid_used,
-                    description=f"刚性支出从 {old_budget.rigid_used:,} 变为 {new_budget.rigid_used:,}",
+                    description=(
+                        f"刚性支出从 {old_budget.rigid_used:,} "
+                        f"变为 {new_budget.rigid_used:,}"
+                    ),
                 )
             )
 

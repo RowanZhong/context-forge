@@ -145,9 +145,12 @@ async def main(mock: bool = True):
     # 启用压缩和时效性加权
     from context_forge.config.schema import CompressConfig, RerankConfig
 
+    # [Design Decision] 默认使用截断压缩（零依赖），生产环境可切换为 LLM 摘要压缩：
+    #   default_compressor="summary"  — 需要配置 LLM Provider（如 OPENAI_API_KEY）
+    #   详见 configs/conversation_policy.yaml 中的完整配置
     new_compress = CompressConfig(
         enabled=True,
-        default_compressor="truncation",  # 使用截断压缩（不需要 LLM）
+        default_compressor="truncation",  # 截断压缩（无需 LLM）；改为 "summary" 启用 Rolling Summary
         saturation_trigger=0.75,
         preserve_must_keep=True,
         min_segment_tokens=50,
@@ -190,11 +193,11 @@ async def main(mock: bool = True):
             provenance=Provenance(
                 source_id=f"turn_{msg.get('turn', 0)}",
                 source_type=SourceType.USER_INPUT if msg["role"] == "user" else SourceType.SYSTEM_CONFIG,
-                created_at=timestamp,
+                retrieved_at=timestamp,
             ),
             metadata=SegmentMetadata(
                 turn_number=msg.get("turn", 0),
-                timestamp=timestamp,
+                custom={"conversation_timestamp": timestamp.isoformat()},
             ),
         ))
 
@@ -304,10 +307,10 @@ async def main(mock: bool = True):
     # 分析时间分布
     console.print("[bold]对话时间分布分析：[/bold]\n")
 
-    # 按时间段统计
-    recent_7d = [s for s in conversation_segments if s.metadata and s.metadata.timestamp and (now - s.metadata.timestamp).days < 7]
-    recent_14d = [s for s in conversation_segments if s.metadata and s.metadata.timestamp and 7 <= (now - s.metadata.timestamp).days < 14]
-    older = [s for s in conversation_segments if s.metadata and s.metadata.timestamp and (now - s.metadata.timestamp).days >= 14]
+    # 按时间段统计（使用 provenance.retrieved_at 记录的对话时间）
+    recent_7d = [s for s in conversation_segments if s.provenance and s.provenance.retrieved_at and (now - s.provenance.retrieved_at).days < 7]
+    recent_14d = [s for s in conversation_segments if s.provenance and s.provenance.retrieved_at and 7 <= (now - s.provenance.retrieved_at).days < 14]
+    older = [s for s in conversation_segments if s.provenance and s.provenance.retrieved_at and (now - s.provenance.retrieved_at).days >= 14]
 
     distribution_table = create_comparison_table(
         "时间分布",
@@ -329,7 +332,161 @@ async def main(mock: bool = True):
     print_success(f"- 时效性加权确保最近对话优先保留")
     print_success(f"- 预算饱和度：{format_percentage(budget_allocation.saturation_rate)} (健康)")
 
-    console.print(f"\n[dim]提示：生产环境建议启用 LLM 摘要压缩（compress.default_compressor=summary），效果更好[/dim]")
+    console.print(f"\n[dim]提示：生产环境建议启用 RollingSummaryCompressor 进行增量摘要压缩[/dim]")
+
+    # ==========================================
+    # 附加演示：RollingSummaryCompressor 滚动摘要
+    # ==========================================
+    print_section("附加演示：RollingSummaryCompressor 滚动摘要")
+
+    console.print(
+        "[bold]RollingSummaryCompressor 与 LLMSummaryCompressor 的区别：[/bold]\n"
+        "  - 有状态：跨 build() 调用保留历史摘要\n"
+        "  - 增量更新：\"上轮摘要 + 新消息 → 更新摘要\"\n"
+        "  - 轮次感知：最近 N 轮保持原文，仅摘要更早的轮次\n"
+    )
+
+    from context_forge.compress.summary import RollingSummaryCompressor
+    from context_forge.compress.base import CompressContext
+
+    # 创建 Mock LLM Provider（实现 LLMProvider Protocol）
+    class DemoLLMProvider:
+        """演示用 Mock LLM Provider。"""
+        def __init__(self):
+            self.call_count = 0
+
+        async def generate(self, prompt: str, max_tokens: int = 500) -> str:
+            self.call_count += 1
+            if "上一轮摘要" in prompt:
+                return (
+                    "更新摘要：\n"
+                    "1. 用户计划 5 月去日本旅行，预算 2 万元，7-10 天\n"
+                    "2. 目的地：东京（4 天）+ 京都（3 天），可加大阪\n"
+                    "3. 兴趣：动漫、电子产品（秋叶原、中野百老汇）\n"
+                    "4. 住宿/交通/美食等已咨询完毕\n"
+                    "5. 新增：用户询问富士山一日游"
+                )
+            return (
+                "初始摘要：\n"
+                "1. 用户计划 5 月去日本旅行，预算 2 万元，7-10 天\n"
+                "2. 目的地：东京 + 京都\n"
+                "3. 兴趣：动漫、电子产品"
+            )
+
+    demo_provider = DemoLLMProvider()
+    rolling_compressor = RollingSummaryCompressor(
+        provider=demo_provider,
+        keep_recent_turns=2,  # 保留最近 2 轮原文
+        max_summary_tokens=300,
+    )
+
+    compress_ctx = CompressContext(
+        available_tokens=4096,
+        target_token_count=2048,
+        saturation=0.9,
+    )
+
+    # 第一轮：初始摘要（模拟前 15 轮对话）
+    print_section("Rolling 第 1 轮：初始摘要")
+    console.print("[dim]输入 15 轮对话历史，keep_recent_turns=2[/dim]\n")
+
+    round1_segments = [
+        Segment(
+            type=SegmentType.USER if msg["role"] == "user" else SegmentType.ASSISTANT,
+            content=msg["content"],
+            role=msg["role"],
+            token_count=len(msg["content"]) // 2,
+            metadata=SegmentMetadata(turn_number=msg.get("turn", 0)),
+        )
+        for msg in conversation_history[:30]  # 前 15 轮（30 条消息）
+    ]
+
+    result1 = await rolling_compressor.compress(round1_segments, compress_ctx)
+
+    console.print(f"  输入 Segment 数：{len(round1_segments)}")
+    console.print(f"  输出 Segment 数：{len(result1.compressed_segments)}")
+    console.print(f"  LLM 调用次数：{demo_provider.call_count}")
+    console.print(f"  滚动状态：{result1.metadata['rolling_state']}")
+    console.print(f"  摘要内容保留的最近轮次数：{result1.metadata['recent_count']}")
+    console.print(f"  has_state = {rolling_compressor.has_state}")
+
+    # 显示摘要内容
+    summary_seg = result1.compressed_segments[0]
+    console.print(f"\n[bold green]生成的摘要：[/bold green]")
+    console.print(f"  {summary_seg.content}")
+
+    # 显示保留的最近轮次
+    recent_segs = result1.compressed_segments[1:]
+    console.print(f"\n[bold cyan]保留的最近轮次原文（{len(recent_segs)} 条）：[/bold cyan]")
+    for seg in recent_segs[:4]:
+        console.print(f"  [{seg.role}] {truncate_text(seg.content, 50)}")
+
+    # 第二轮：增量更新（新增 2 轮对话）
+    print_section("Rolling 第 2 轮：增量更新")
+    console.print("[dim]新增 2 轮对话，滚动摘要增量更新[/dim]\n")
+
+    round2_segments = round1_segments + [
+        Segment(
+            type=SegmentType.USER, content="对了，富士山值得去吗？",
+            role="user", token_count=10,
+            metadata=SegmentMetadata(turn_number=17),
+        ),
+        Segment(
+            type=SegmentType.ASSISTANT,
+            content="值得！从东京出发，可以去河口湖看富士山。",
+            role="assistant", token_count=15,
+            metadata=SegmentMetadata(turn_number=17),
+        ),
+        Segment(
+            type=SegmentType.USER, content="怎么安排富士山一日游？",
+            role="user", token_count=10,
+            metadata=SegmentMetadata(turn_number=18),
+        ),
+        Segment(
+            type=SegmentType.ASSISTANT,
+            content="建议早上从新宿出发，坐大巴到河口湖，游玩后傍晚返回。",
+            role="assistant", token_count=20,
+            metadata=SegmentMetadata(turn_number=18),
+        ),
+    ]
+
+    result2 = await rolling_compressor.compress(round2_segments, compress_ctx)
+
+    console.print(f"  输入 Segment 数：{len(round2_segments)}")
+    console.print(f"  输出 Segment 数：{len(result2.compressed_segments)}")
+    console.print(f"  LLM 调用次数（累计）：{demo_provider.call_count}")
+    console.print(f"  滚动状态：{result2.metadata['rolling_state']}")
+
+    summary_seg2 = result2.compressed_segments[0]
+    console.print(f"\n[bold green]更新后的摘要：[/bold green]")
+    console.print(f"  {summary_seg2.content}")
+
+    recent_segs2 = result2.compressed_segments[1:]
+    console.print(f"\n[bold cyan]保留的最近轮次原文（{len(recent_segs2)} 条）：[/bold cyan]")
+    for seg in recent_segs2:
+        console.print(f"  [{seg.role}] {truncate_text(seg.content, 50)}")
+
+    # 重置演示
+    print_section("Rolling 状态管理")
+    console.print(f"  reset 前 has_state = {rolling_compressor.has_state}")
+    rolling_compressor.reset()
+    console.print(f"  reset 后 has_state = {rolling_compressor.has_state}")
+
+    # Token 节省统计
+    original_total = sum(seg.token_count or 0 for seg in round2_segments)
+    compressed_total = result2.compressed_token_count
+    saved = original_total - compressed_total
+    saved_pct = saved / original_total if original_total > 0 else 0
+
+    console.print(f"\n[bold]滚动摘要 Token 优化：[/bold]")
+    console.print(f"  原始 Token：{format_tokens(original_total)}")
+    console.print(f"  压缩后 Token：{format_tokens(compressed_total)}")
+    console.print(f"  节省：{format_tokens(saved)} ({format_percentage(saved_pct)})")
+
+    print_success("滚动摘要演示完成！")
+    print_success("- 支持跨调用增量更新，无需每次重新摘要全部历史")
+    print_success("- 最近轮次保持原文，确保上下文连贯性")
+    print_success("- reset() 可随时清除状态，重新开始")
 
 
 if __name__ == "__main__":

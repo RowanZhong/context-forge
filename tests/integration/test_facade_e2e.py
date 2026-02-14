@@ -478,18 +478,18 @@ class TestFacadeObservability:
 
     @pytest.mark.asyncio
     async def test_snapshot_method(self, mock_snapshot_manager: MagicMock) -> None:
-        """测试 snapshot() 便捷方法。"""
+        """测试 save_snapshot() 便捷方法。"""
         mock_snapshot_manager.save = AsyncMock(return_value="snap_id_456")
 
         forge = ContextForge(model="gpt-4o", snapshot_manager=mock_snapshot_manager)
         context = await forge.build(system_prompt="你是一个助手。")
 
-        snapshot_id = await forge.snapshot(context)
+        snapshot_id = await forge.save_snapshot(context)
         assert snapshot_id == "snap_id_456"
 
     @pytest.mark.asyncio
     async def test_snapshot_without_manager_raises_error(self) -> None:
-        """测试没有快照管理器时调用 snapshot() 抛异常。"""
+        """测试没有快照管理器时调用 save_snapshot() 抛异常。"""
         # 创建禁用快照的策略
         import tempfile
         import yaml
@@ -512,7 +512,7 @@ class TestFacadeObservability:
             context = await forge.build(system_prompt="你是一个助手。")
 
             with pytest.raises(RuntimeError):
-                await forge.snapshot(context)
+                await forge.save_snapshot(context)
         finally:
             import os
 
@@ -520,7 +520,7 @@ class TestFacadeObservability:
 
     @pytest.mark.asyncio
     async def test_diff_method(self, mock_snapshot_manager: MagicMock) -> None:
-        """测试 diff() 便捷方法。"""
+        """测试 diff_snapshots() 便捷方法。"""
         # 创建 mock 快照对象，包含 .package 属性
         snap1_mock = MagicMock()
         snap1_mock.package = MagicMock(model="gpt-4o")
@@ -548,14 +548,14 @@ class TestFacadeObservability:
             )
             mock_diff_engine_class.return_value = mock_diff_instance
 
-            result = await forge.diff("snap_1", "snap_2")
+            result = await forge.diff_snapshots("snap_1", "snap_2")
             assert "differences" in result
 
     @pytest.mark.asyncio
     async def test_golden_record_method(
         self, mock_snapshot_manager: MagicMock
     ) -> None:
-        """测试 golden_record() 便捷方法。"""
+        """测试 validate_against_golden() 便捷方法。"""
         # 创建 mock 黄金快照对象，包含 .package 属性
         golden_snap_mock = MagicMock()
         golden_snap_mock.package = MagicMock(model="gpt-4o")
@@ -578,7 +578,7 @@ class TestFacadeObservability:
             )
             mock_diff_engine_class.return_value = mock_diff_instance
 
-            result = await forge.golden_record("golden_snap_id", context)
+            result = await forge.validate_against_golden("golden_snap_id", context)
             assert "passed" in result
             assert result["passed"] is True
 
@@ -1301,7 +1301,7 @@ class TestFacadeEdgeCases:
         assert len(rag_segments) >= 2
 
     def test_diff_without_manager_raises_error(self) -> None:
-        """测试没有快照管理器时调用 diff() 抛异常。"""
+        """测试没有快照管理器时调用 diff_snapshots() 抛异常。"""
         import tempfile
         import yaml
 
@@ -1322,14 +1322,14 @@ class TestFacadeEdgeCases:
             forge = ContextForge(model="gpt-4o", policy_path=policy_path)
 
             with pytest.raises(RuntimeError):
-                asyncio.run(forge.diff("snap_1", "snap_2"))
+                asyncio.run(forge.diff_snapshots("snap_1", "snap_2"))
         finally:
             import os
 
             os.unlink(policy_path)
 
     def test_golden_record_without_manager_raises_error(self) -> None:
-        """测试没有快照管理器时调用 golden_record() 抛异常。"""
+        """测试没有快照管理器时调用 validate_against_golden() 抛异常。"""
         import tempfile
         import yaml
 
@@ -1351,7 +1351,7 @@ class TestFacadeEdgeCases:
             context = asyncio.run(forge.build(system_prompt="你是一个助手。"))
 
             with pytest.raises(RuntimeError):
-                asyncio.run(forge.golden_record("golden_snap_id", context))
+                asyncio.run(forge.validate_against_golden("golden_snap_id", context))
         finally:
             import os
 

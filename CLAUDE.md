@@ -7,7 +7,7 @@
 **双重身份**：书籍《LLM 工程化项目实战指南·2026 版》第 6 章配套项目 + 可 fork 直接用于生产的开源基础设施
 **许可证**：Apache 2.0
 **项目路径**：`D:\MyProjects\test\context-forge\`
-**状态**：v0.1.0 — 功能代码全部完成，测试套件完整（903/903 通过，覆盖率 84.26%），P1 缺陷已全部修复
+**状态**：v0.1.0 — 功能代码全部完成，测试套件完整（1180/1180 通过，覆盖率 91.52%），P1/P2/P3/P4 缺陷已全部修复，六大场景审计修复完成，性能基准测试已补充
 
 ## 已确认的关键决策
 
@@ -120,7 +120,7 @@
 | 12 | CLI 工具完整实现 | 第四轮 | ✅ |
 | 13 | 错误处理体系 | 第一轮 | ✅ |
 | 14 | 六大场景集成示例 | 第五轮 | ✅ |
-| 15 | 测试套件 | 第五轮 | ✅ 452/452 通过，覆盖率 74%（见审计报告） |
+| 15 | 测试套件 | 第五轮 | ✅ 1037/1037 通过，覆盖率 89.93%（见审计报告） |
 | 16 | 配置参考（6 个策略 YAML） | 第五轮 | ✅ |
 | 17 | DevOps 文件 | 第六轮 | ✅ |
 | 18 | README.md 完整版 | 第六轮 | ✅ |
@@ -132,14 +132,14 @@
 ```
 __init__.py                          # 包导出，暴露 ContextForge + 所有核心模型
 facade.py                            # ContextForge 顶层 Facade，build() / build_sync()
-facade_observability.py              # ObservabilityMixin — diff/snapshot/golden_record 方法
+facade_observability.py              # ObservabilityMixin — save_snapshot/diff_snapshots/validate_against_golden 方法
 py.typed                             # PEP 561 类型标记
 
 models/
   __init__.py                        # 模型导出
   segment.py                         # Segment, SegmentType, Priority, DEFAULT_PRIORITY_MAP
   provenance.py                      # Provenance, SourceType
-  control.py                         # ControlFlags, Visibility
+  control.py                         # ControlFlags, Visibility（含 NAMESPACE/DOWNSTREAM/GLOBAL）
   metadata.py                        # SegmentMetadata
   context_package.py                 # ContextPackage, TokenUsage
   budget.py                          # BudgetPolicy, BudgetAllocation, SpendType
@@ -323,11 +323,21 @@ CONTRIBUTING.md                      # 贡献指南（中文，完整开发流�
 CHANGELOG.md                         # 版本历史（Keep a Changelog 格式）
 ```
 
+### 性能基准测试 — `benchmarks/`
+
+```
+__init__.py                          # 包标记
+test_bench_assembly.py               # 组装延迟基准（P99 < 50ms、线性扩展验证）
+test_bench_memory.py                 # 内存占用基准（RSS < 512MB、内存泄漏检测）
+test_bench_cache.py                  # 缓存命中延迟基准（延迟降低 > 60%、未命中开销 < 20%）
+```
+
+运行方式：`python -m pytest benchmarks/ -v --no-cov -s`
+
 ### 未创建的文件
 
 - `docs/architecture.md` — 架构文档（因 pre-commit hook 限制未创建，可后续补充）
 - `docs/api_reference.md` — API 参考文档（同上）
-- `benchmarks/` — 性能基准目录（预留，未实现）
 
 ## 关键架构细节
 
@@ -341,6 +351,8 @@ CHANGELOG.md                         # 版本历史（Keep a Changelog 格式）
 ### 数据模型关键设计
 - **Segment** 是核心，使用 `frozen=True`，`model_post_init` 自动填充默认优先级
 - **Provenance** 和 **ControlFlags** 通过 `Any` 类型引用避免循环导入（在 `model_post_init` 中延迟导入）
+- **Visibility** 枚举 7 个值：ALL / CURRENT_TURN / AGENT_ONLY / INTERNAL / NAMESPACE / DOWNSTREAM / GLOBAL
+- **ControlFlags** 含多 Agent 协调字段：`handoff_to`（交接目标 Agent ID）、`publish`（是否发布到全局上下文）
 - **AuditEntry** 记录流水线每一步的决策，包含 segment_id + decision + reason_code + reason_detail
 - **BudgetPolicy** 的 `elastic_ratios` 使用 `dict[SegmentType, float]` 按类型配比
 
@@ -373,12 +385,116 @@ class PipelineStage(Protocol):
 
 ## 六大生产场景
 
-1. **RAG 上下文质量治理**：Pipeline + Sanitize + Budget + Select 策略
-2. **多轮对话记忆管理**：Budget + Compress + Rolling Summary + Must-Keep
-3. **多 Agent 上下文协调**：Isolate + Context Bus + Handoff + Namespace
-4. **安全合规清洗**：Sanitize + Injection 检测 + PII Redaction
-5. **Prompt 版本管理与回归**：Observability + Snapshot + Diff + Golden Set
-6. **多模型适配与成本优化**：Routing + Budget + Cache
+### 总览（审计日期：2026-02-14）
+
+| 场景 | 名称 | 方案 | 完整度 | 缺口 |
+|------|------|------|--------|------|
+| 1 | RAG 上下文质量治理 | Pipeline + Sanitize + Budget + Select 策略 | **100%** | 无 |
+| 2 | 多轮对话记忆管理 | Budget + Compress + Rolling Summary + Must-Keep | **100%** | 无（已实现 RollingSummaryCompressor） |
+| 3 | 多 Agent 上下文协调 | Isolate + Context Bus + Handoff + Namespace | **100%** | 无 |
+| 4 | 安全合规清洗 | Sanitize + Injection 检测 + PII Redaction | **100%** | 无 |
+| 5 | Prompt 版本管理与回归 | Observability + Snapshot + Diff + Golden Set | **100%** | 无 |
+| 6 | 多模型适配与成本优化 | Routing + Budget + Cache | **~95%** | 语义缓存（semantic_cache）未实现，仅精确匹配 + 前缀匹配 |
+
+### 逐场景方案关键词核实
+
+#### 场景 1：RAG 上下文质量治理 ✅
+
+| 关键词 | 实现位置 | 说明 |
+|--------|---------|------|
+| **Pipeline** | `pipeline/base.py` | Pipeline 编排器，6 阶段顺序执行 |
+| **Sanitize** | `pipeline/sanitize_stage.py` + `sanitize/` | 5 个清洗插件链 |
+| **Budget** | `pipeline/allocate.py` + `budget/manager.py` | 刚性/弹性预算分配 + 竞价 |
+| **Select 策略** | `pipeline/rerank.py` RerankStage | 代码注释标注 `→ 6.3.2 Select`，含去重/MMR/时效加权/类型限数/优先级排序，非独立模块但逻辑完整 |
+
+- `configs/rag_policy.yaml` 配置完整（MMR 去重、时效加权、RAG 50% 弹性预算）
+- `context.budget_allocation.saturation_rate` 和 `context.dropped_segments` 属性均可用
+- `examples/scenario_rag_quality.py` 可正常运行
+
+#### 场景 2：多轮对话记忆管理 ⚠️
+
+| 关键词 | 实现位置 | 说明 |
+|--------|---------|------|
+| **Budget** | 同场景 1 | ✅ 完整 |
+| **Compress** | `compress/` + `pipeline/compress_stage.py` | ✅ 截断/去重/摘要三种策略 |
+| **Rolling Summary** | `compress/summary.py` RollingSummaryCompressor | ✅ 真正的增量滚动摘要（P3-6 新增） |
+| **Must-Keep** | `facade.py:614` → `ControlFlags(must_keep=True)` → `compress/engine.py:344` | ✅ 完整保护链路 |
+
+- `RollingSummaryCompressor` 实现了真正的 Rolling Summary：
+  - ✅ 跨 `build()` 调用保留历史摘要状态（`_previous_summary` 字段）
+  - ✅ "上轮摘要 + 新消息 → 更新摘要" 增量逻辑
+  - ✅ 逐轮滚动：`keep_recent_turns` 参数控制保留最近 N 轮原文
+  - ✅ `has_state` 属性、`reset()` 方法
+- `LLMSummaryCompressor` 保留为无状态一次性压缩器（简单场景使用）
+- `configs/conversation_policy.yaml` 配置完整（`preserve_must_keep: true`）
+- 三级自动降级可用：无 LLM Provider → 截断 / LLM 调用失败 → 截断 / Pipeline 层创建失败 → 默认引擎
+- `examples/scenario_conversation_memory.py` 可正常运行
+
+#### 场景 3：多 Agent 上下文协调 ✅
+
+| 关键词 | 实现位置 | 说明 |
+|--------|---------|------|
+| **Isolate** | `routing/context_bus.py`（标注 `→ 6.3.4 Isolate`）+ `models/control.py` Visibility 枚举 + `pipeline/rerank.py` 可见性过滤 | 非独立模块，通过 namespace + 7 级 Visibility 枚举实现，架构合理 |
+| **Context Bus** | `routing/context_bus.py` ContextBus 类 | `register_agent` / `publish_segment` / `get_visible_segments` 全部实现 |
+| **Handoff** | `ContextBus.handoff()` + `HandoffRequest` dataclass | `from_agent_id` / `to_agent_id` / `reason` 签名正确 |
+| **Namespace** | `ControlFlags.namespace` + `facade.build(namespace=...)` | 完整集成 |
+
+- `Visibility` 枚举含 7 个值（ALL / CURRENT_TURN / AGENT_ONLY / INTERNAL / NAMESPACE / DOWNSTREAM / GLOBAL）
+- `ControlFlags` 含 `handoff_to` 和 `publish` 多 Agent 协调字段
+- `examples/scenario_multi_agent.py` 可正常运行
+
+#### 场景 4：安全合规清洗 ✅
+
+| 关键词 | 实现位置 | 说明 |
+|--------|---------|------|
+| **Sanitize** | `sanitize/` 5 个插件 + `pipeline/sanitize_stage.py` | Unicode 归一化 → HTML 剥离 → PII 脱敏 → Injection 检测 → 长度防御 |
+| **Injection 检测** | `sanitize/injection_detector.py` | 3 级检测（BASIC/STANDARD/STRICT），30+ 模式，结果记录到 audit_log |
+| **PII Redaction** | `sanitize/pii_redactor.py` | 手机 `138****8000`、邮箱 `a***e@example.com`、身份证/银行卡/IP/URL |
+
+- `configs/security_policy.yaml` 配置完整（6 种 PII 类型 + 3 级检测）
+- `context.warnings` 包含清洗警告
+- `examples/scenario_security_compliance.py` 可正常运行
+
+#### 场景 5：Prompt 版本管理与回归 ✅
+
+| 关键词 | 实现位置 | 说明 |
+|--------|---------|------|
+| **Observability** | `observability/` 模块 | Snapshot + Diff + Golden Set + Metrics + Tracing |
+| **Snapshot** | `observability/snapshot.py` + `facade_observability.py:40` `save_snapshot()` | 返回 `str`（snapshot_id），签名与 README 一致 |
+| **Diff** | `observability/diff.py` + `facade_observability.py:64` `diff_snapshots()` | 返回 `dict`（含 summary/entries），多维度结构化比对 |
+| **Golden Set** | `observability/golden_set.py` + `facade_observability.py:96` `validate_against_golden()` | 返回 `dict`（含 `"passed"` 布尔键），与 README 一致 |
+
+- `examples/scenario_versioning.py` 可正常运行
+
+#### 场景 6：多模型适配与成本优化 ⚠️
+
+| 关键词 | 实现位置 | 说明 |
+|--------|---------|------|
+| **Routing** | `routing/rule_based.py` + `routing/complexity.py` | ✅ 规则路由 + 复杂度分析，`estimated_cost` 实际计算（非硬编码） |
+| **Budget** | 同场景 1 | ✅ 完整 |
+| **Cache** | `cache/` + `facade.py` 缓存集成 + `ContextPackage.to_cache_dict()/from_cache_dict()` | ✅ 精确匹配 + 前缀匹配可用（P3-7 修复） |
+
+- `ContextPackage.to_cache_dict()` / `from_cache_dict()` 实现完整的序列化/反序列化
+- `facade.py` 缓存命中后正确反序列化并返回缓存结果（不再 fallthrough）
+- `cache/keys.py` 新增 `PrefixCacheKeyGenerator`（前缀匹配缓存）
+- `configs/cost_optimization_policy.yaml` 存在，含 5 条路由规则（按复杂度分级）
+- `RoutingDecision` 含 `selected_model` / `complexity` / `estimated_cost` 全部字段
+- `config/defaults.py` 含 11+ 模型的输入/输出单价数据
+- `examples/scenario_routing_cost.py` 可正常运行（路由 + 成本计算 + 缓存演示）
+- **剩余缺口**：`semantic_cache` 仍未实现（需要 embedding 模型），仅支持精确匹配和前缀匹配
+
+### Write/Select/Compress/Isolate 四策略映射（→ 6.3）
+
+CLAUDE.md 功能模块表中声称 "Write/Select/Compress/Isolate 策略 | 6.3 | 分散在 pipeline/ 和专属模块 | ✅ 完成"，逐一核实如下：
+
+| 策略 | 章节 | 实现位置 | 形式 | 状态 |
+|------|------|---------|------|------|
+| **Write** | 6.3.1 | `pipeline/assemble.py` AssembleStage | 最终组装 + 格式化 + State Anchoring | ✅ |
+| **Select** | 6.3.2 | `pipeline/rerank.py` RerankStage | 去重/MMR/时效/类型限数/优先级排序 | ✅ |
+| **Compress** | 6.3.3 | `pipeline/compress_stage.py` + `compress/` | 截断/去重/LLM 摘要/Rolling Summary | ✅ |
+| **Isolate** | 6.3.4 | `routing/context_bus.py` + `models/control.py` | namespace + Visibility 过滤 | ✅ |
+
+四策略均非独立模块，而是分散在 Pipeline 阶段和专属模块中，通过代码注释 `→ 6.3.x` 标注映射关系。
 
 ## 原始需求核心约束
 
@@ -415,6 +531,7 @@ context-forge/
 │   ├── integrations/          # 框架适配器（预留扩展）
 │   └── facade.py              # 顶层入口
 ├── tests/                     # 测试套件（14 单元 + 4 集成）
+├── benchmarks/                # 性能基准测试（3 文件，6 用例）
 ├── examples/                  # 场景示例（7 Demo + 6 场景 + quickstart）
 ├── configs/                   # YAML 策略文件（6 个场景策略）
 ├── scripts/                   # 开发脚本（setup_dev.sh/ps1）
@@ -432,9 +549,9 @@ context-forge/
 
 ## 质量审计报告
 
-### 最新审计（2026-02-13）
+### 最新审计（2026-02-14）
 
-审计日期：2026-02-13 | 审计工具：pytest 8.x + coverage.py + ruff + mypy
+审计日期：2026-02-14 | 审计工具：pytest 8.x + coverage.py + ruff + mypy
 
 #### 总览评分
 
@@ -442,13 +559,13 @@ context-forge/
 |------|------|------|
 | 功能实现完整度 | 全部 11 模块均为真实逻辑实现，非骨架 | 95/100 |
 | 代码质量 | 不可变模型、三段式错误、Protocol 接口、教学标注齐全、facade 已拆分 | 92/100 |
-| 测试通过率 | **1037/1037 (100%)**，零失败零错误 | **100/100** |
-| 测试覆盖率 | **89.93%**，超过 85% 目标 | **100/100** |
+| 测试通过率 | **1180/1180 (100%)**，零失败零错误 | **100/100** |
+| 测试覆盖率 | **91.52%**，超过 85% 目标 | **100/100** |
 | 测试-实现一致性 | 测试与实现 API 已完全对齐 | **98/100** |
-| 类型安全 | mypy 38 errors / 82 files（77% 文件无错误） | 78/100 |
-| 代码规范 | ruff 148 issues（排除中文字符误报后），27 可自动修复 | 85/100 |
+| 类型安全 | mypy 28 errors / 82 files（已消除 import-untyped、arg-type、attr-defined） | 85/100 |
+| 代码规范 | ruff 29 issues（排除中文字符误报后），E501/TC001/B028 已全部修复 | 95/100 |
 
-**综合评分：93/100**
+**综合评分：96/100**
 
 #### 代码规模
 
@@ -467,10 +584,10 @@ context-forge/
 #### 测试运行结果
 
 ```
-1037 collected, 1037 passed, 0 failed, 0 errors, 23 warnings
-代码覆盖率：89.93%（目标 85%，已达标 ✅）
-语句总数：5,230 | 未覆盖：387
-分支总数：1,386 | 未覆盖：207
+1180 collected, 1180 passed, 0 failed, 0 errors, 23 warnings
+代码覆盖率：91.52%（目标 85%，已达标 ✅）
+语句总数：5,378 | 未覆盖：334
+分支总数：1,432 | 未覆盖：195
 ```
 
 #### 按模块覆盖率汇总
@@ -492,18 +609,20 @@ context-forge/
 | cli/ | 970 | 134 | **83.1%** | 良好 |
 | errors/ | 101 | 15 | **80.0%** | 达标 |
 
-#### 覆盖率 < 80% 的文件（8 个，从 12 个减少）
+#### 覆盖率 < 80% 的文件（5 个，从 8 个减少）
 
 | 文件 | 覆盖率 | 未覆盖行 | 说明 |
 |------|--------|----------|------|
 | `routing/__init__.py` | 66.7% | 3 | 便捷导出函数 |
-| `config/loader.py` | 68.5% | 18 | YAML 加载错误路径未充分测试 |
 | `routing/base.py` | 74.4% | 6 | RoutingContext 部分属性 |
-| `cli/cmd_diff.py` | 75.6% | 27 | diff 子命令复杂分支 |
-| `cli/utils.py` | 77.9% | 24 | CLI 工具函数 |
 | `cli/cmd_build.py` | 79.6% | 20 | build 子命令错误处理分支 |
 | `errors/exceptions.py` | 79.6% | 15 | 部分异常类 `__str__` 未覆盖 |
 | `pipeline/sanitize_stage.py` | 79.8% | 11 | 清洗插件动态加载分支 |
+
+**已提升至 80%+ 的文件（P3 修复）：**
+- ~~`config/loader.py`~~ 68.5% → 100%
+- ~~`cli/cmd_diff.py`~~ 75.6% → 100%
+- ~~`cli/utils.py`~~ 77.9% → 100%
 
 #### 文件规模合规
 
@@ -511,7 +630,7 @@ context-forge/
 
 | 文件 | 行数 | 状态 |
 |------|------|------|
-| `facade.py` | 774 | 合规（从 860 行拆分，-86 行） |
+| `facade.py` | 810 | 接近上限（从 860 行拆分 + 后续修复略有增长） |
 | `antipattern/rules.py` | 747 | 接近上限 |
 | `cli/server.py` | 696 | 合规 |
 | `errors/exceptions.py` | 491 | 合规 |
@@ -523,44 +642,50 @@ context-forge/
 
 #### Ruff 静态分析（排除中文字符误报 RUF001/002/003）
 
-共 148 个 issue（从 189 个减少 22%），分布如下：
+共 29 个 issue（从 148 个减少 80%），分布如下：
 
 | 规则 | 数量 | 类别 | 可自动修复 |
 |------|------|------|-----------|
-| E501 行过长 | 46 | 格式 | 否 |
-| TC001 仅类型导入 | 39 | 类型 | 否 |
-| I001 导入未排序 | 12 | 格式 | 是 |
-| RUF022 `__all__` 未排序 | 12 | 格式 | 是 |
-| RUF010 显式 f-string 转换 | 8 | 格式 | 是 |
-| B028 warn 缺 stacklevel | 6 | Bug | 否 |
-| SIM102 可合并 if | 5 | 简化 | 否 |
-| F841 未使用变量 | 3 | 清理 | 是 |
-| 其他 (SIM/RUF/UP/TC/B) | 17 | 混合 | 部分 |
+| RUF022 `__all__` 未排序 | 7 | 格式 | 是 |
+| SIM102 可合并 if | 4 | 简化 | 否 |
+| TC003 仅类型标准库导入 | 4 | 类型 | 否 |
+| RUF012 可变类默认值 | 3 | Bug | 否 |
+| B007 未使用循环变量 | 2 | 清理 | 否 |
+| RUF005 列表拼接 | 2 | 格式 | 否 |
+| SIM103/SIM108 可简化 | 4 | 简化 | 否 |
+| 其他 (F841/I001/SIM115) | 3 | 混合 | 部分 |
 
-**已修复的规则（本轮清理）：**
+**已修复的规则（历次清理）：**
 - ~~B904（11 个）~~ → 0（全部添加 from e/from None）
 - ~~F401（19 个）~~ → 0（全部清理）
 - ~~F541（12 个）~~ → 0（全部修正）
+- ~~E501（46 个）~~ → 0（全部重构为多行格式）
+- ~~TC001（39 个）~~ → 0（全部移入 TYPE_CHECKING 块）
+- ~~B028（6 个）~~ → 0（全部添加 stacklevel=2）
 
 #### mypy 类型检查
 
-共 38 个错误（从 51 个减少 25%），分布在 19 个文件中：
+共 28 个错误（从 38 个减少），分布在 15 个文件中：
 
 | 错误类别 | 数量 | 严重性 |
 |----------|------|--------|
-| `valid-type`（`any` vs `Any`） | 5 | 低 — 类型别名拼写 |
-| `arg-type` / `call-arg` | 4 | 中 — 参数类型偶尔不匹配 |
+| `arg-type` / `call-arg` | 5 | 中 — 参数类型偶尔不匹配 |
 | `var-annotated` | 4 | 低 — 缺类型标注 |
 | `assignment` | 4 | 中 — 类型不兼容赋值 |
-| `no-any-return` | 2 | 低 — Any 返回值 |
-| `import-untyped` | 2 | 低 — 缺 yaml stubs |
-| 其他 | 17 | 混合 |
+| `no-any-return` | 3 | 低 — Any 返回值 |
+| `type-arg` | 2 | 低 — 缺泛型参数 |
+| `misc` | 2 | 低 — 切片索引类型 |
+| ~~`import-untyped`~~ | ~~2~~ → 0 | ✅ 已安装 `types-PyYAML` |
+| ~~`attr-defined`~~ | ~~1~~ → 0 | ✅ 已移除 facade.py 死代码 |
+| 其他 | 8 | 混合 |
 
-**已修复的高危 mypy 错误（本轮修复）：**
+**已修复的高危 mypy 错误（历次修复）：**
 - ~~`facade.py:849`：`GoldenSetRunner` 传入不存在的 `snapshot_manager` 参数~~ ✅
 - ~~`facade.py:853`：调用不存在的 `GoldenSetRunner.compare()` 方法~~ ✅
 - ~~`facade.py:796`：返回 `Coroutine` 而非 `dict[str, Any]`（缺少 `await`）~~ ✅
 - ~~`facade.py:450-451`：未检查 union 类型中的 str~~ ✅
+- ~~`facade.py:344`：引用不存在的 `RoutingDecision.budget_adjustment` 属性~~ ✅（P4 移除死代码）
+- ~~`pipeline/sanitize_stage.py`：6 个 `arg-type` 错误（列表类型协变）~~ ✅（P4 显式标注 `list[Sanitizer]`）
 - ~~`cli/server.py:304`：`build()` 传入不存在的 `few_shot` 参数~~ ✅
 - ~~`cli/server.py:305,320,342,610`：4 个类型不匹配~~ ✅
 - ~~`config/schema.py:287`：`to_budget_policy()` 返回 `Any`~~ ✅
@@ -611,6 +736,24 @@ context-forge/
 | `cache/redis_backend.py` | 0% | 100% | +100% |
 | `observability/snapshot.py` | 76% | 90% | +14% |
 
+#### 六大场景审计修复（2026-02-13 第四轮）
+
+README "六大生产场景" 代码示例与实际 API 不一致，场景 3 示例运行崩溃。逐场景修复如下：
+
+| 场景 | 问题 | 影响文件 | 修复方式 |
+|------|------|----------|----------|
+| 场景 1（RAG） | README 注释声称"过滤低分文档"，实际无 score 过滤 | README.md | 注释改为"自动去重、优先级排序、按预算截断" |
+| 场景 3（多 Agent） | `Visibility.NAMESPACE/DOWNSTREAM/GLOBAL` 枚举值不存在 | models/control.py | 新增 3 个枚举值 |
+| 场景 3（多 Agent） | `ControlFlags.handoff_to` / `publish` 字段不存在 | models/control.py | 新增 2 个可选字段（默认 None/False） |
+| 场景 3（多 Agent） | `ContextBus.get_visible_segments()` 不支持 GLOBAL/DOWNSTREAM | routing/context_bus.py | 跨 namespace 可见性逻辑扩展 |
+| 场景 3（多 Agent） | 示例使用不存在的 `SegmentMetadata.timestamp/agent_name` | examples/scenario_multi_agent.py | 改为 `injected_at` + `debug_labels` |
+| 场景 3（多 Agent） | README 代码示例调用不存在的 `create_handoff`/`build_from_handoff` | README.md | 重写为 ContextBus 实际 API |
+| 场景 4（安全） | README PII 格式描述 `[PHONE]` 与实际 `138****8000` 不符 | README.md | 改为实际的智能脱敏格式 |
+| 场景 5（版本管理） | README API 名全错：`save_snapshot`→`snapshot` 等 | README.md | 已统一为 `save_snapshot`/`diff_snapshots`/`validate_against_golden` |
+| 场景 6（路由成本） | README 构造参数 `routing_enabled`/`routing_strategy` 不存在 | README.md | 改为 `policy_path=` 配置方式 |
+| 场景 6（路由成本） | `estimated_cost` 硬编码为 0.0，无实际成本计算 | routing/rule_based.py | 调用 `ModelConfig.estimate_cost()` 实际计算 |
+| 场景 6（路由成本） | README 字段名 `chosen_model`/`complexity_level` 不存在 | README.md | 改为 `selected_model.model_id` / `complexity.value` |
+
 ### 已知问题与技术债务
 
 #### P1 + P2 全部已修复 ✅
@@ -627,10 +770,34 @@ context-forge/
 | P2-8 | F401 未使用导入（19 处） | 15 个文件全部清理 |
 | P2-9 | F541 空 f-string（12 处） | 5 个文件全部修正 |
 
-#### P3（可选优化）
+#### P3 全部已修复 ✅（2026-02-14）
 
-1. **TC001 仅类型导入（39 处）** — 生产导入应移入 `TYPE_CHECKING` 块
-2. **E501 行过长（46 处）** — 超出行宽限制
-3. **config/loader.py 覆盖率 68.5%** — YAML 错误处理分支未充分测试
-4. **安装 types-PyYAML** — 消除 2 个 `import-untyped` mypy 错误
-5. **cli/ 整体覆盖率 83.1%** — cmd_diff.py (75.6%) 和 utils.py (77.9%) 可提升
+| 编号 | 问题 | 修复方式 |
+|------|------|----------|
+| P3-1 | TC001 仅类型导入（39 处） | 全部移入 `TYPE_CHECKING` 块，添加 `from __future__ import annotations` |
+| P3-2 | E501 行过长（46 处） | 全部重构为多行格式 |
+| P3-3 | config/loader.py 覆盖率 68.5% | 新增 `test_config_loader_coverage.py`，覆盖率 → 100% |
+| P3-4 | 缺少 types-PyYAML | 添加到 dev 依赖并安装，消除 `import-untyped` mypy 错误 |
+| P3-5 | cli/cmd_diff.py (75.6%) 和 utils.py (77.9%) | 新增 `test_cli_coverage.py`，两者均 → 100% |
+| P3-6 | Rolling Summary 名不副实 | 新增 `RollingSummaryCompressor` 类：跨调用状态保留、增量摘要、轮次感知、`_previous_summary` 状态字段 |
+| P3-7 | Cache 集成未落地 | 实现 `ContextPackage.to_cache_dict()`/`from_cache_dict()`，修复 `facade.py` 缓存命中返回逻辑，新增 `PrefixCacheKeyGenerator` |
+
+#### P4 全部已修复 ✅（2026-02-14）
+
+| 编号 | 问题 | 修复方式 |
+|------|------|----------|
+| P4-1 | facade.py:344 引用不存在的 `budget_adjustment` 属性（高危死代码） | 移除 9 行死代码（hasattr 防御分支永远不执行） |
+| P4-2 | pipeline/sanitize_stage.py 6 个 mypy arg-type 错误（列表类型协变） | 显式标注 `sanitizers: list[Sanitizer]`，TYPE_CHECKING 补充 `Sanitizer` 导入 |
+| P4-3 | B028 warnings.warn 缺 stacklevel（6 处） | `snapshot.py`（3 处）+ `tracing.py`（3 处）全部添加 `stacklevel=2` |
+| P4-4 | benchmarks/ 性能基准测试缺失 | 新增 3 个基准测试文件（6 个用例），验证组装延迟/内存/缓存三项指标 |
+
+**P4-4 性能基准测试结果：**
+
+| 指标 | 阈值 | 实测值 | 状态 |
+|------|------|--------|------|
+| P99 组装延迟（10 Segment, 128K） | < 50ms | 1.38ms | ✅ 远优于目标 |
+| RSS 内存（200K Token） | < 512MB | 129.9MB | ✅ 远优于目标 |
+| 缓存命中延迟降低 | > 60% | 79.0% | ✅ 超标 |
+| 线性扩展（20 vs 5 Segment） | < 3x | 1.82x | ✅ 亚线性 |
+| 内存泄漏（20 轮 build） | 无增长 | +0.0MB | ✅ 无泄漏 |
+| 缓存未命中开销 | < 20% | -5.0% | ✅ 无开销 |

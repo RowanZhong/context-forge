@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from context_forge.config.defaults import MODEL_REGISTRY, resolve_model
 from context_forge.errors.exceptions import ModelNotFoundError, RoutingError
@@ -29,8 +29,10 @@ from context_forge.models.routing import (
     RoutingDecision,
     RoutingRule,
 )
-from context_forge.routing.base import RoutingContext
 from context_forge.routing.complexity import ComplexityEstimator
+
+if TYPE_CHECKING:
+    from context_forge.routing.base import RoutingContext
 
 
 class RuleBasedRouter:
@@ -130,7 +132,10 @@ class RuleBasedRouter:
                     ),
                     confidence=complexity_signals.confidence,
                     reasoning=self._build_reasoning(rule, complexity_signals),
-                    estimated_cost=0.0,  # 成本在实际使用时计算
+                    estimated_cost=selected_model.estimate_cost(
+                        input_tokens=context.total_tokens,
+                        output_tokens=selected_model.max_output_tokens,
+                    ),
                 )
 
         # 3. 无规则匹配，使用默认模型
@@ -141,7 +146,10 @@ class RuleBasedRouter:
             is_fallback=False,
             confidence=complexity_signals.confidence,
             reasoning=f"无匹配规则，使用默认模型 {self.default_model.model_id}",
-            estimated_cost=0.0,
+            estimated_cost=self.default_model.estimate_cost(
+                input_tokens=context.total_tokens,
+                output_tokens=self.default_model.max_output_tokens,
+            ),
         )
 
     def _match_rule(

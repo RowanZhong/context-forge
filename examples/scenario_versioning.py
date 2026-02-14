@@ -125,7 +125,7 @@ async def main(mock: bool = True):
     )
 
     # 保存 v1 快照
-    snapshot_id_v1 = await forge_v1.snapshot(context_v1)
+    snapshot_id_v1 = await forge_v1.save_snapshot(context_v1)
 
     print_success(f"Prompt v1 快照已保存：{snapshot_id_v1}\n")
 
@@ -195,7 +195,7 @@ async def main(mock: bool = True):
     )
 
     # 保存 v2 快照
-    snapshot_id_v2 = await forge_v2.snapshot(context_v2)
+    snapshot_id_v2 = await forge_v2.save_snapshot(context_v2)
 
     print_success(f"Prompt v2 快照已保存：{snapshot_id_v2}\n")
 
@@ -216,20 +216,19 @@ async def main(mock: bool = True):
     print_section("步骤 3：Diff 分析（v1 vs v2）")
 
     # 使用 DiffEngine 对比
-    diff_result = await forge_v2.diff(snapshot_id_v1, snapshot_id_v2)
+    diff_result = await forge_v2.diff_snapshots(snapshot_id_v1, snapshot_id_v2)
 
     console.print("[bold]变更摘要：[/bold]\n")
 
     # 显示 Segment 变更
-    segment_changes = diff_result.get("segment_changes", {})
-    console.print(f"  - 新增 Segment：[green]{len(segment_changes.get('added', []))}[/green] 个")
-    console.print(f"  - 删除 Segment：[red]{len(segment_changes.get('removed', []))}[/red] 个")
-    console.print(f"  - 修改 Segment：[yellow]{len(segment_changes.get('modified', []))}[/yellow] 个")
+    summary = diff_result.get("summary", {})
+    console.print(f"  - 新增 Segment：[green]{summary.get('added', 0)}[/green] 个")
+    console.print(f"  - 删除 Segment：[red]{summary.get('removed', 0)}[/red] 个")
+    console.print(f"  - 修改 Segment：[yellow]{summary.get('modified', 0)}[/yellow] 个")
     console.print()
 
     # 显示 Token 变化
-    token_diff = diff_result.get("token_usage_diff", {})
-    token_change = token_diff.get("total_tokens", 0)
+    token_change = context_v2.token_usage.total_tokens - context_v1.token_usage.total_tokens
     token_change_pct = token_change / context_v1.token_usage.total_tokens if context_v1.token_usage.total_tokens > 0 else 0
 
     token_color = "green" if token_change < 0 else "red"
@@ -237,21 +236,19 @@ async def main(mock: bool = True):
     console.print()
 
     # 显示预算变化
-    budget_diff = diff_result.get("budget_diff", {})
-    saturation_change = budget_diff.get("saturation_rate", 0)
+    saturation_change = context_v2.budget_allocation.saturation_rate - context_v1.budget_allocation.saturation_rate
 
     console.print(f"  - 预算饱和度变化：{saturation_change:+.1%}\n")
 
     # 详细变更表
-    if segment_changes.get("modified"):
+    modified_entries = [e for e in diff_result.get("entries", []) if e.get("type") == "modified"]
+    if modified_entries:
         console.print("[bold]修改详情（System Prompt）：[/bold]\n")
 
-        for change in segment_changes["modified"][:1]:  # 只显示第一个（System Prompt）
-            console.print(f"  Segment ID: [dim]{change.get('segment_id', 'unknown')}[/dim]")
+        for change in modified_entries[:1]:
+            console.print(f"  Path: [dim]{change.get('path', 'unknown')}[/dim]")
             console.print(f"  类型: {change.get('type', 'unknown')}")
-            console.print(f"  旧内容长度: {len(change.get('old_content', ''))} 字符")
-            console.print(f"  新内容长度: {len(change.get('new_content', ''))} 字符")
-            console.print(f"  Token 变化: {change.get('token_diff', 0):+d}\n")
+            console.print(f"  描述: {change.get('description', '')}\n")
 
     print_section("步骤 4：Golden Set 回归测试")
 
@@ -259,14 +256,14 @@ async def main(mock: bool = True):
     console.print(f"[bold]使用 v1 作为 Golden Set 基线[/bold]\n")
 
     # 对 v2 进行回归测试
-    regression_result = await forge_v2.golden_record(
+    regression_result = await forge_v2.validate_against_golden(
         golden_snapshot_id=snapshot_id_v1,
         current_package=context_v2,
     )
 
     # 显示回归结果
     passed = regression_result.get("passed", False)
-    issues = regression_result.get("issues", [])
+    issues = regression_result.get("entries", [])
 
     result_color = "green" if passed else "red"
     result_text = "OK 通过" if passed else "X 失败"
@@ -276,7 +273,7 @@ async def main(mock: bool = True):
     if issues:
         console.print(f"[bold yellow]发现 {len(issues)} 个问题：[/bold yellow]\n")
         for issue in issues[:5]:
-            print_warning(f"{issue.get('type', 'unknown')}: {issue.get('message', '')}")
+            print_warning(f"{issue.get('type', 'unknown')}: {issue.get('description', '')}")
         console.print()
     else:
         print_success("未发现回归问题")

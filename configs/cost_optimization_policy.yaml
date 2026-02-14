@@ -134,39 +134,45 @@ routing:
   router_type: "rule_based"
 
   # 路由规则：根据复杂度选择模型
+  # 格式：name, condition_type, condition_value, target_model, priority, fallback_model
   rules:
     # 简单问题 → GPT-4o-mini（成本 1/10）
-    - condition:
-        complexity: "simple"
-        input_tokens_lt: 1000
+    - name: "simple_to_mini"
+      condition_type: "complexity"
+      condition_value: "simple"
       target_model: "gpt-4o-mini"
-      reason: "简单问题使用小模型，节省 90% 成本"
+      priority: 10
 
     # 中等复杂度 → GPT-4o
-    - condition:
-        complexity: "medium"
-        input_tokens_lt: 5000
+    - name: "moderate_to_gpt4o"
+      condition_type: "complexity"
+      condition_value: "moderate"
       target_model: "gpt-4o"
-      reason: "中等问题使用标准模型"
+      priority: 20
+      fallback_model: "gpt-4o-mini"
 
-    # 复杂推理 → Claude Sonnet（仅在必要时）
-    - condition:
-        complexity: "complex"
-        requires_reasoning: true
-      target_model: "claude-sonnet-4-5"
-      reason: "复杂推理任务使用 Claude Sonnet"
+    # 复杂推理 → Claude Sonnet
+    - name: "complex_to_sonnet"
+      condition_type: "complexity"
+      condition_value: "complex"
+      target_model: "claude-sonnet-4-5-20250514"
+      priority: 30
+      fallback_model: "gpt-4o"
 
-    # 编码任务 → GPT-4o（性价比高）
-    - condition:
-        task_type: "code_generation"
+    # 编码任务 → GPT-4o（关键词路由）
+    - name: "code_to_gpt4o"
+      condition_type: "keyword"
+      condition_value: "代码|code|编程|编码|函数|API"
       target_model: "gpt-4o"
-      reason: "编码任务使用 GPT-4o"
+      priority: 25
 
-    # 默认规则 → GPT-4o-mini
-    - condition:
-        default: true
-      target_model: "gpt-4o-mini"
-      reason: "默认使用最便宜的模型"
+    # 专家级 → Claude Opus
+    - name: "expert_to_opus"
+      condition_type: "complexity"
+      condition_value: "expert"
+      target_model: "claude-opus-4-20250115"
+      priority: 40
+      fallback_model: "claude-sonnet-4-5-20250514"
 
 # --- 可观测性 ---
 observability:

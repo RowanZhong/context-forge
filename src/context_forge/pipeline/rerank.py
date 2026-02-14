@@ -20,10 +20,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+from typing import TYPE_CHECKING
 
 from context_forge.models.audit import AuditEntry, DecisionType, ReasonCode
 from context_forge.models.segment import Priority, Segment, SegmentType
-from context_forge.pipeline.base import PipelineContext
+
+if TYPE_CHECKING:
+    from context_forge.pipeline.base import PipelineContext
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +156,9 @@ class RerankStage:
                         reason_code=ReasonCode.SELECT_EXPIRED,
                         reason_detail=(
                             f"TTL 过期：设定 {seg.control.ttl} 轮，"
-                            f"当前已过 {context.current_turn - (seg.metadata.turn_number or 0)} 轮。"
+                            f"当前已过 "
+                            f"{context.current_turn - (seg.metadata.turn_number or 0)}"
+                            f" 轮。"
                         ),
                         pipeline_stage=self.name,
                     ))

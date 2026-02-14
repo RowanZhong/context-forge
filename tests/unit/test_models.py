@@ -389,7 +389,7 @@ class TestControlFlags:
 
     def test_visibility_enum(self) -> None:
         """测试 Visibility 枚举。"""
-        expected = {"ALL", "CURRENT_TURN", "AGENT_ONLY", "INTERNAL"}
+        expected = {"ALL", "CURRENT_TURN", "AGENT_ONLY", "INTERNAL", "NAMESPACE", "DOWNSTREAM", "GLOBAL"}
         actual = {v.name for v in Visibility}
         assert actual == expected
 
@@ -777,13 +777,13 @@ class TestContextPackage:
         assert package.token_usage.by_role["system"] == 100
         assert package.token_usage.by_role["user"] == 200
 
-    def test_context_package_to_snapshot_dict(
+    def test_context_package_to_snapshot(
         self,
         system_segment: Segment,
         conversation_segments: list[Segment],
         _budget_allocation: BudgetAllocation,
     ) -> None:
-        """测试 to_snapshot_dict() 序列化。"""
+        """测试 to_snapshot() 序列化。"""
         package = ContextPackage(
             segments=[system_segment] + conversation_segments,
             audit_log=[],
@@ -791,7 +791,7 @@ class TestContextPackage:
             model="gpt-4o",
             policy_version="1.0.0",
         )
-        snapshot = package.to_snapshot_dict()
+        snapshot = package.to_snapshot()
         assert isinstance(snapshot, dict)
         assert "segments" in snapshot
         assert "budget" in snapshot

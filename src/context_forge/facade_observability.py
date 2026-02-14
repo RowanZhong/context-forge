@@ -7,9 +7,9 @@ ContextForge 可观测性扩展方法。
 保持 facade.py 聚焦于核心组装逻辑。
 
 提供三个便捷方法：
-- diff()：对比两个快照的差异
-- snapshot()：保存 ContextPackage 快照
-- golden_record()：与黄金快照对比，检测回归
+- save_snapshot()：保存 ContextPackage 快照
+- diff_snapshots()：对比两个快照的差异
+- validate_against_golden()：与黄金快照对比，检测回归
 """
 
 from __future__ import annotations
@@ -37,7 +37,31 @@ class ObservabilityMixin:
     _snapshot_manager: Any
     _debug: bool
 
-    async def diff(
+    async def save_snapshot(self, package: ContextPackage) -> str:
+        """
+        保存 ContextPackage 快照。
+
+        → 6.5.1 Context Snapshot
+
+        参数:
+            package: 要保存的 ContextPackage
+
+        返回:
+            快照 ID
+
+        异常:
+            RuntimeError: 快照管理器未启用
+        """
+        if not self._snapshot_manager:
+            raise RuntimeError(
+                "快照管理器未启用。请在初始化 ContextForge 时设置 "
+                "observability.snapshot_enabled=True"
+            )
+
+        result: str = await self._snapshot_manager.save(package)
+        return result
+
+    async def diff_snapshots(
         self, snapshot_id1: str, snapshot_id2: str
     ) -> dict[str, Any]:
         """
@@ -69,31 +93,7 @@ class ObservabilityMixin:
         context_diff = await diff_engine.diff(snap1.package, snap2.package)
         return diff_engine.format_json(context_diff)
 
-    async def snapshot(self, package: ContextPackage) -> str:
-        """
-        保存 ContextPackage 快照。
-
-        → 6.5.1 Context Snapshot
-
-        参数:
-            package: 要保存的 ContextPackage
-
-        返回:
-            快照 ID
-
-        异常:
-            RuntimeError: 快照管理器未启用
-        """
-        if not self._snapshot_manager:
-            raise RuntimeError(
-                "快照管理器未启用。请在初始化 ContextForge 时设置 "
-                "observability.snapshot_enabled=True"
-            )
-
-        result: str = await self._snapshot_manager.save(package)
-        return result
-
-    async def golden_record(
+    async def validate_against_golden(
         self,
         golden_snapshot_id: str,
         current_package: ContextPackage,

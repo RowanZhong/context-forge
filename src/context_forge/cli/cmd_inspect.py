@@ -299,5 +299,9 @@ def _output_rich(snapshot_data: dict[str, Any], show_audit: bool, show_content: 
         console.print("[bold]Token 使用分布（按角色）：[/bold]")
         for role, count in sorted(by_role.items(), key=lambda x: -x[1]):
             percentage = count / total_tokens * 100 if total_tokens > 0 else 0
-            console.print(f"  [cyan]{role:12}[/cyan]: {format_token_count(count):>10} ({percentage:.1f}%)")
+            formatted = format_token_count(count)
+            console.print(
+                f"  [cyan]{role:12}[/cyan]:"
+                f" {formatted:>10} ({percentage:.1f}%)"
+            )
         console.print("\n")

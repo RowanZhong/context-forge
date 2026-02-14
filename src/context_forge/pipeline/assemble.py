@@ -14,10 +14,13 @@ Assemble 阶段 — 最终组装与快照生成。
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from context_forge.models.audit import AuditEntry, DecisionType, ReasonCode
 from context_forge.models.segment import Segment, SegmentType
-from context_forge.pipeline.base import PipelineContext
+
+if TYPE_CHECKING:
+    from context_forge.pipeline.base import PipelineContext
 
 logger = logging.getLogger(__name__)
 

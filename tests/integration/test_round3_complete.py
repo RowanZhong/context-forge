@@ -291,7 +291,7 @@ async def test_observability_integration():
 
         # 快照应该自动保存（在 build 中）
         # 手动保存一个
-        snapshot_id1 = await forge.snapshot(package1)
+        snapshot_id1 = await forge.save_snapshot(package1)
         assert snapshot_id1 is not None, "快照保存失败"
 
         # 第二次构建（不同输入）
@@ -304,14 +304,14 @@ async def test_observability_integration():
             ],
         )
 
-        snapshot_id2 = await forge.snapshot(package2)
+        snapshot_id2 = await forge.save_snapshot(package2)
 
         # 对比两个快照
-        # Note: forge.diff() loads Snapshot objects and passes them to DiffEngine.diff()
+        # Note: forge.diff_snapshots() loads Snapshot objects and passes them to DiffEngine.diff()
         # which expects ContextPackage objects. This is a known bug in the facade.
         # We verify the snapshots were saved successfully and diff attempt doesn't crash.
         try:
-            diff = await forge.diff(snapshot_id1, snapshot_id2)
+            diff = await forge.diff_snapshots(snapshot_id1, snapshot_id2)
             # If it succeeds, verify it has some structure
             assert diff is not None, "Diff 生成失败"
         except (AttributeError, TypeError):
@@ -321,7 +321,7 @@ async def test_observability_integration():
         # Golden Set 对比
         # Note: golden_record also has API mismatch issues
         try:
-            golden_result = await forge.golden_record(snapshot_id1, package2)
+            golden_result = await forge.validate_against_golden(snapshot_id1, package2)
             assert golden_result is not None, "Golden Set 对比失败"
         except (AttributeError, TypeError):
             # Expected: GoldenSetRunner.compare() may receive incompatible types

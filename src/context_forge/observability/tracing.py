@@ -22,9 +22,10 @@ from __future__ import annotations
 import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from context_forge.models.context_package import ContextPackage
+if TYPE_CHECKING:
+    from context_forge.models.context_package import ContextPackage
 
 # [Design Decision] 使用 lazy import,避免强依赖 OpenTelemetry
 _OTEL_AVAILABLE = False
@@ -81,7 +82,8 @@ class TracingMiddleware:
         if not _OTEL_AVAILABLE and tracer is not None:
             warnings.warn(
                 "OpenTelemetry 未安装,TracingMiddleware 将以无操作模式运行。"
-                "如需启用追踪,请安装: pip install opentelemetry-api opentelemetry-sdk"
+                "如需启用追踪,请安装: pip install opentelemetry-api opentelemetry-sdk",
+                stacklevel=2,
             )
 
     @asynccontextmanager
@@ -290,7 +292,8 @@ def auto_configure_otel(
             except ImportError:
                 warnings.warn(
                     "opentelemetry-exporter-otlp 未安装,降级为控制台输出。"
-                    "如需 OTLP 导出,请安装: pip install opentelemetry-exporter-otlp"
+                    "如需 OTLP 导出,请安装: pip install opentelemetry-exporter-otlp",
+                    stacklevel=2,
                 )
                 exporter = ConsoleSpanExporter()
         else:
@@ -307,5 +310,5 @@ def auto_configure_otel(
         return trace.get_tracer(service_name)
 
     except Exception as e:
-        warnings.warn(f"OpenTelemetry 自动配置失败: {e}")
+        warnings.warn(f"OpenTelemetry 自动配置失败: {e}", stacklevel=2)
         return None

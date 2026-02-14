@@ -20,11 +20,14 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from typing import TYPE_CHECKING
 
 from context_forge.models.audit import AuditEntry, DecisionType, ReasonCode
-from context_forge.models.segment import Segment
-from context_forge.pipeline.base import PipelineContext
 from context_forge.tokenizer.registry import get_tokenizer
+
+if TYPE_CHECKING:
+    from context_forge.models.segment import Segment
+    from context_forge.pipeline.base import PipelineContext
 
 logger = logging.getLogger(__name__)
 

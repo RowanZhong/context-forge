@@ -128,9 +128,13 @@ def _validate_input_file(path: str, strict: bool) -> None:
         """输入文件校验 Schema。"""
         system_prompt: str | None = Field(default=None, description="系统提示")
         messages: list[dict[str, str]] | None = Field(default=None, description="对话历史")
-        rag_chunks: list[dict[str, str | float]] | None = Field(default=None, description="RAG 片段")
+        rag_chunks: list[dict[str, str | float]] | None = Field(
+            default=None, description="RAG 片段"
+        )
         tools: list[dict[str, str]] | None = Field(default=None, description="工具定义")
-        few_shot_examples: list[dict[str, str]] | None = Field(default=None, description="少样本示例")
+        few_shot_examples: list[dict[str, str]] | None = Field(
+            default=None, description="少样本示例"
+        )
         state: dict[str, str] | None = Field(default=None, description="状态锚点")
 
     try:
@@ -174,8 +178,12 @@ def _validate_input_file(path: str, strict: bool) -> None:
 
     except ValidationError as e:
         console.print(Panel(
-            "\n".join(f"[red]X[/red] 字段 '{'.'.join(str(loc) for loc in err['loc'])}': {err['msg']}"
-                     for err in e.errors()),
+            "\n".join(
+                f"[red]X[/red] 字段 "
+                f"'{'.'.join(str(loc) for loc in err['loc'])}'"
+                f": {err['msg']}"
+                for err in e.errors()
+            ),
             title="[bold red]校验失败[/bold red]",
             border_style="red",
         ))

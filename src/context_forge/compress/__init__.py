@@ -23,7 +23,11 @@ from context_forge.compress.base import (
 )
 from context_forge.compress.dedup import DedupCompressor
 from context_forge.compress.engine import CompressEngine
-from context_forge.compress.summary import LLMProvider, LLMSummaryCompressor
+from context_forge.compress.summary import (
+    LLMProvider,
+    LLMSummaryCompressor,
+    RollingSummaryCompressor,
+)
 from context_forge.compress.truncation import TruncationCompressor, TruncationStrategy
 
 __all__ = [
@@ -36,6 +40,7 @@ __all__ = [
     "TruncationStrategy",
     "DedupCompressor",
     "LLMSummaryCompressor",
+    "RollingSummaryCompressor",
     "LLMProvider",
     # 压缩引擎
     "CompressEngine",

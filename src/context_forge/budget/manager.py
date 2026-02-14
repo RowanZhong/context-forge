@@ -39,12 +39,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from context_forge.budget.strategies import ElasticStrategy, ReserveStrategy, RigidStrategy
 from context_forge.errors.exceptions import BudgetExceededError
 from context_forge.models.audit import AuditEntry, DecisionType, ReasonCode
 from context_forge.models.budget import BudgetAllocation, BudgetPolicy
-from context_forge.models.segment import Segment
+
+if TYPE_CHECKING:
+    from context_forge.models.segment import Segment
 
 logger = logging.getLogger(__name__)
 

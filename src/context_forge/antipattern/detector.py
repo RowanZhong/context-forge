@@ -30,7 +30,7 @@ Detector 负责：
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from context_forge.antipattern.base import (
     AntiPatternRule,
@@ -38,7 +38,9 @@ from context_forge.antipattern.base import (
     DetectionContext,
     DetectionResult,
 )
-from context_forge.models.context_package import ContextPackage
+
+if TYPE_CHECKING:
+    from context_forge.models.context_package import ContextPackage
 
 
 class AntiPatternDetector:
@@ -210,7 +212,12 @@ class AntiPatternDetector:
         lines.append("")
 
         # 输出详细结果
-        for severity in [AntiPatternSeverity.CRITICAL, AntiPatternSeverity.WARNING, AntiPatternSeverity.INFO]:
+        severities = [
+            AntiPatternSeverity.CRITICAL,
+            AntiPatternSeverity.WARNING,
+            AntiPatternSeverity.INFO,
+        ]
+        for severity in severities:
             severity_results = by_severity[severity]
             if not severity_results:
                 continue

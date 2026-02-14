@@ -272,8 +272,12 @@ def _output_rich_diff(
     """输出 Rich 彩色差异。"""
     # 摘要面板
     summary_panel = Panel(
-        f"[bold]快照 1:[/bold] {snapshot1.get('request_id', 'N/A')} ({snapshot1.get('model', 'N/A')})\n"
-        f"[bold]快照 2:[/bold] {snapshot2.get('request_id', 'N/A')} ({snapshot2.get('model', 'N/A')})",
+        f"[bold]快照 1:[/bold] "
+        f"{snapshot1.get('request_id', 'N/A')} "
+        f"({snapshot1.get('model', 'N/A')})\n"
+        f"[bold]快照 2:[/bold] "
+        f"{snapshot2.get('request_id', 'N/A')} "
+        f"({snapshot2.get('model', 'N/A')})",
         title="快照比对",
         border_style="blue",
     )
@@ -334,18 +338,34 @@ def _output_rich_diff(
 
     # 新增的 Segment 详情
     if diff_result["segments_added"]:
-        console.print(f"[bold green]新增的 Segment ({len(diff_result['segments_added'])} 个)：[/bold green]")
+        added_count = len(diff_result['segments_added'])
+        console.print(
+            f"[bold green]新增的 Segment "
+            f"({added_count} 个)：[/bold green]"
+        )
         for seg in diff_result["segments_added"][:5]:
-            console.print(f"  [green]+[/green] [{seg.get('type', 'N/A')}] {seg.get('content_preview', '')[:60]}...")
+            seg_type = seg.get('type', 'N/A')
+            preview = seg.get('content_preview', '')[:60]
+            console.print(
+                f"  [green]+[/green] [{seg_type}] {preview}..."
+            )
         if len(diff_result["segments_added"]) > 5:
             console.print(f"  [dim]... 还有 {len(diff_result['segments_added']) - 5} 个[/dim]")
         console.print("\n")
 
     # 删除的 Segment 详情
     if diff_result["segments_removed"]:
-        console.print(f"[bold red]删除的 Segment ({len(diff_result['segments_removed'])} 个)：[/bold red]")
+        removed_count = len(diff_result['segments_removed'])
+        console.print(
+            f"[bold red]删除的 Segment "
+            f"({removed_count} 个)：[/bold red]"
+        )
         for seg in diff_result["segments_removed"][:5]:
-            console.print(f"  [red]-[/red] [{seg.get('type', 'N/A')}] {seg.get('content_preview', '')[:60]}...")
+            seg_type = seg.get('type', 'N/A')
+            preview = seg.get('content_preview', '')[:60]
+            console.print(
+                f"  [red]-[/red] [{seg_type}] {preview}..."
+            )
         if len(diff_result["segments_removed"]) > 5:
             console.print(f"  [dim]... 还有 {len(diff_result['segments_removed']) - 5} 个[/dim]")
         console.print("\n")

@@ -67,24 +67,27 @@ class LLMRouter:
     # → 6.6.1.5 语义路由：LLM 分类 Prompt 模板
     # 这个 Prompt 要求 LLM 输出结构化的 JSON，包含复杂度和推理过程
 
-    CLASSIFICATION_PROMPT_TEMPLATE = """你是一个查询复杂度分类器。请分析用户查询的复杂度，并返回 JSON 格式的结果。
-
-复杂度等级定义：
-- simple: 简单查询（FAQ、直接查找、格式转换）
-- moderate: 中等查询（需要检索和综合分析）
-- complex: 复杂查询（需要多步推理、比较、创造性思考）
-- expert: 专家级查询（需要深度推理、数学证明、代码生成）
-
-用户查询：
-{query}
-
-请返回 JSON（不要有其他文本）：
-{{
-  "complexity": "simple|moderate|complex|expert",
-  "confidence": 0.0-1.0,
-  "reasoning": "判断理由"
-}}
-"""
+    CLASSIFICATION_PROMPT_TEMPLATE = (
+        "你是一个查询复杂度分类器。"
+        "请分析用户查询的复杂度，"
+        "并返回 JSON 格式的结果。\n"
+        "\n"
+        "复杂度等级定义：\n"
+        "- simple: 简单查询（FAQ、直接查找、格式转换）\n"
+        "- moderate: 中等查询（需要检索和综合分析）\n"
+        "- complex: 复杂查询（需要多步推理、比较、创造性思考）\n"
+        "- expert: 专家级查询（需要深度推理、数学证明、代码生成）\n"
+        "\n"
+        "用户查询：\n"
+        "{query}\n"
+        "\n"
+        "请返回 JSON（不要有其他文本）：\n"
+        '{{\n'
+        '  "complexity": "simple|moderate|complex|expert",\n'
+        '  "confidence": 0.0-1.0,\n'
+        '  "reasoning": "判断理由"\n'
+        "}}\n"
+    )
 
     def __init__(
         self,

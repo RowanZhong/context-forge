@@ -16,10 +16,13 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from context_forge.compress.base import CompressContext, CompressionResult
 from context_forge.models.provenance import Provenance, SourceType
-from context_forge.models.segment import Segment
+
+if TYPE_CHECKING:
+    from context_forge.models.segment import Segment
 
 
 class TruncationStrategy(str, Enum):

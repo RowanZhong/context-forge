@@ -63,7 +63,11 @@ def init_command(
     else:
         # 尝试从包内复制默认配置
         try:
-            config_src = Path(__file__).parent.parent.parent.parent / "configs" / "default_policy.yaml"
+            config_src = (
+                Path(__file__).parent.parent.parent.parent
+                / "configs"
+                / "default_policy.yaml"
+            )
             if config_src.exists():
                 shutil.copy(config_src, config_dst)
                 created_files.append("context_forge.yaml")
@@ -178,14 +182,21 @@ def _generate_example_input(path: Path) -> None:
         ],
         "rag_chunks": [
             {
-                "content": "退货政策：电子产品（包括手机、平板、笔记本电脑）在购买后 7 天内可无理由退货。"
-                           "退货时需确保商品包装完好、配件齐全、未激活。",
+                "content": (
+                    "退货政策：电子产品（包括手机、平板、笔记本电脑）"
+                    "在购买后 7 天内可无理由退货。"
+                    "退货时需确保商品包装完好、配件齐全、未激活。"
+                ),
                 "score": 0.95,
                 "source_id": "policy_doc_001"
             },
             {
-                "content": "退款流程：1. 在订单详情页点击「申请退货」；2. 选择退货原因；"
-                           "3. 系统生成退货单号；4. 寄回商品；5. 我们收到商品后 3-5 个工作日内完成退款。",
+                "content": (
+                    "退款流程：1. 在订单详情页点击「申请退货」；"
+                    "2. 选择退货原因；"
+                    "3. 系统生成退货单号；4. 寄回商品；"
+                    "5. 我们收到商品后 3-5 个工作日内完成退款。"
+                ),
                 "score": 0.87,
                 "source_id": "policy_doc_002"
             }
@@ -213,7 +224,10 @@ def _generate_example_input(path: Path) -> None:
             },
             {
                 "role": "assistant",
-                "content": "您可以在订单详情页查看物流信息，点击「查看物流」按钮即可追踪包裹实时位置。"
+                "content": (
+                    "您可以在订单详情页查看物流信息，"
+                    "点击「查看物流」按钮即可追踪包裹实时位置。"
+                )
             }
         ],
         "state": {

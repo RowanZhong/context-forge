@@ -7,6 +7,7 @@
 - 自动路由
 - Budget 调整
 - 成本对比
+- 缓存降本演示（相同查询命中缓存，跳过 Pipeline）
 
 使用方法：
   python examples/scenario_routing_cost.py          # 使用 mock 模式（默认）
@@ -15,6 +16,7 @@
 
 → 6.6 上下文路由与动态调度
 → 6.2.2 预算分配策略
+→ 6.2.3 缓存架构与复用优化
 """
 
 import asyncio
@@ -70,7 +72,7 @@ async def main(mock: bool = True):
         },
         {
             "id": "query_medium",
-            "complexity": ComplexityLevel.MEDIUM,
+            "complexity": ComplexityLevel.MODERATE,
             "user_message": "对比一下 iPhone 15 Pro 和 Samsung S24 Ultra 的性能和价格。",
             "rag_chunks": [
                 {"content": "iPhone 15 Pro：A17 Pro 芯片，128GB 起售价 7999 元。", "score": 0.92},
@@ -93,7 +95,7 @@ async def main(mock: bool = True):
                 {"content": "营销漏斗：认知→兴趣→考虑→转化→忠诚...", "score": 0.80},
                 {"content": "预算分配模板：研发 40%、营销 30%、运营 20%、其他 10%...", "score": 0.78},
             ],
-            "expected_model": "claude-sonnet-4-5",
+            "expected_model": "claude-sonnet-4-5-20250514",
             "description": "复杂多步骤任务，需要深度推理",
         },
     ]
@@ -125,48 +127,37 @@ async def main(mock: bool = True):
     routing_rules = [
         RoutingRule(
             name="simple_queries",
-            condition={
-                "complexity": "SIMPLE",
-                "max_rag_chunks": 2,
-            },
+            condition_type="complexity",
+            condition_value="simple",
             target_model="gpt-4o-mini",
-            budget_adjustment={
-                "max_context_tokens": 4096,
-            },
+            priority=10,
         ),
         RoutingRule(
-            name="medium_queries",
-            condition={
-                "complexity": "MEDIUM",
-                "max_rag_chunks": 10,
-            },
+            name="moderate_queries",
+            condition_type="complexity",
+            condition_value="moderate",
             target_model="gpt-4o",
-            budget_adjustment={
-                "max_context_tokens": 8192,
-            },
+            priority=20,
         ),
         RoutingRule(
             name="complex_queries",
-            condition={
-                "complexity": "COMPLEX",
-            },
-            target_model="claude-sonnet-4-5",
-            budget_adjustment={
-                "max_context_tokens": 16384,
-            },
+            condition_type="complexity",
+            condition_value="complex",
+            target_model="claude-sonnet-4-5-20250514",
+            priority=30,
         ),
     ]
 
     # 显示路由规则
     rule_table = create_comparison_table(
         "路由规则",
-        ["规则名", "条件", "目标模型", "上下文窗口"],
+        ["规则名", "条件", "目标模型", "预算策略"],
         [
             [
                 rule.name,
-                f"复杂度={rule.condition.get('complexity', 'ANY')}",
+                f"{rule.condition_type}={rule.condition_value}",
                 rule.target_model,
-                format_tokens(rule.budget_adjustment.get("max_context_tokens", 0)),
+                "按模型默认",
             ]
             for rule in routing_rules
         ]
@@ -188,7 +179,7 @@ async def main(mock: bool = True):
             enabled=True,
             default_model="gpt-4o",
             router_type="rule_based",
-            rules=routing_rules,
+            rules=[r.model_dump() for r in routing_rules],
         ),
         "observability": ObservabilityConfig(
             snapshot_enabled=False,
@@ -203,7 +194,7 @@ async def main(mock: bool = True):
 
     forge._router = RuleBasedRouter(
         default_model=forge._policy.routing.default_model,
-        rules=forge._policy.routing.rules,
+        rules=routing_rules,
     )
 
     # 处理每个查询
@@ -226,11 +217,9 @@ async def main(mock: bool = True):
 
         if routing_decision:
             console.print(f"  路由决策：")
-            console.print(f"    - 选择模型：[bold cyan]{routing_decision.selected_model}[/bold cyan]")
-            console.print(f"    - 复杂度：{routing_decision.estimated_complexity.value if routing_decision.estimated_complexity else 'N/A'}")
+            console.print(f"    - 选择模型：[bold cyan]{routing_decision.selected_model.model_id}[/bold cyan]")
+            console.print(f"    - 复杂度：{routing_decision.complexity.value}")
             console.print(f"    - 理由：{routing_decision.reasoning}")
-            if routing_decision.budget_adjustment:
-                console.print(f"    - 窗口调整：{format_tokens(routing_decision.budget_adjustment.get('max_context_tokens', 0))}")
         else:
             console.print(f"  路由决策：使用默认模型 {forge.model}")
 
@@ -241,11 +230,11 @@ async def main(mock: bool = True):
             "query_id": query["id"],
             "complexity": query["complexity"].value,
             "expected_model": query["expected_model"],
-            "selected_model": routing_decision.selected_model if routing_decision else forge.model,
+            "selected_model": routing_decision.selected_model.model_id if routing_decision else forge.model,
             "tokens": context.token_usage.total_tokens,
             "saturation": context.budget_allocation.saturation_rate,
             "duration_ms": context.assembly_duration_ms,
-            "matched": (routing_decision.selected_model if routing_decision else forge.model) == query["expected_model"],
+            "matched": (routing_decision.selected_model.model_id if routing_decision else forge.model) == query["expected_model"],
         })
 
     print_section("步骤 4：路由准确性分析")
@@ -280,7 +269,7 @@ async def main(mock: bool = True):
     model_costs = {
         "gpt-4o-mini": {"input": 0.15, "output": 0.60},
         "gpt-4o": {"input": 2.50, "output": 10.00},
-        "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
+        "claude-sonnet-4-5-20250514": {"input": 3.00, "output": 15.00},
     }
 
     # 计算成本
@@ -354,7 +343,116 @@ async def main(mock: bool = True):
     console.print(f"  - 固定模型：${yearly_baseline:,.2f}")
     console.print(f"  - 年节省：[bold green]${abs(yearly_saved):,.2f}[/bold green]\n")
 
-    print_section("步骤 6：性能 vs 成本权衡")
+    print_section("步骤 6：缓存降本演示")
+
+    # 演示缓存命中如何节省计算和 API 成本
+    # [Design Decision] 使用独立的 ContextForge 实例启用缓存，
+    # 演示相同查询第二次调用直接命中缓存的效果。
+    from context_forge.cache import CacheManager, MemoryCache
+    from context_forge.config.schema import CacheConfig
+
+    # 创建启用缓存的 forge 实例
+    forge_cached = ContextForge(
+        model="gpt-4o",
+        max_context_tokens=8192,
+    )
+    # 启用缓存
+    forge_cached._policy = forge_cached._policy.model_copy(update={
+        "cache": CacheConfig(enabled=True, backend="memory", ttl_seconds=3600),
+        "routing": RoutingConfig(
+            enabled=True,
+            default_model="gpt-4o",
+            router_type="rule_based",
+            rules=[r.model_dump() for r in routing_rules],
+        ),
+        "observability": ObservabilityConfig(
+            snapshot_enabled=False,
+            tracing_enabled=False,
+            metrics_enabled=False,
+            export_format="json",
+        ),
+    })
+    forge_cached._router = RuleBasedRouter(
+        default_model=forge_cached._policy.routing.default_model,
+        rules=routing_rules,
+    )
+    forge_cached._cache_manager = CacheManager(
+        l1=MemoryCache(max_size=1000, default_ttl=3600),
+    )
+
+    # 使用简单查询演示缓存
+    cache_query = test_queries[0]  # 简单查询
+    system_prompt = "你是一个智能助手，根据用户问题和检索到的信息提供帮助。"
+
+    console.print("[bold]演示：相同查询的缓存效果[/bold]\n")
+
+    # 第一次调用（缓存未命中，走完整 Pipeline）
+    context_first = await forge_cached.build(
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": cache_query["user_message"]}],
+        rag_chunks=cache_query["rag_chunks"],
+    )
+    first_duration = context_first.assembly_duration_ms
+
+    # 第二次调用（相同输入，应命中缓存）
+    context_second = await forge_cached.build(
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": cache_query["user_message"]}],
+        rag_chunks=cache_query["rag_chunks"],
+    )
+    second_duration = context_second.assembly_duration_ms
+
+    # 获取缓存统计
+    cache_stats = await forge_cached._cache_manager.stats()
+    l1_stats = cache_stats.get("l1")
+
+    # 显示缓存效果
+    cache_table = create_comparison_table(
+        "缓存效果对比",
+        ["调用", "延迟", "Segment 数", "Token 数", "状态"],
+        [
+            [
+                "第 1 次（缓存未命中）",
+                f"{first_duration:.1f}ms",
+                str(len(context_first.segments)),
+                format_tokens(context_first.token_usage.total_tokens),
+                "[yellow]MISS[/yellow]",
+            ],
+            [
+                "第 2 次（缓存命中）",
+                f"{second_duration:.1f}ms",
+                str(len(context_second.segments)),
+                format_tokens(context_second.token_usage.total_tokens),
+                "[green]HIT[/green]",
+            ],
+        ]
+    )
+    console.print(cache_table)
+    console.print()
+
+    # 验证缓存命中的结果与首次构建一致
+    first_messages = context_first.to_messages()
+    second_messages = context_second.to_messages()
+    content_match = all(
+        m1["content"] == m2["content"]
+        for m1, m2 in zip(first_messages, second_messages)
+    )
+    console.print(f"  缓存结果内容一致性：[bold]{'OK' if content_match else 'MISMATCH'}[/bold]")
+
+    if l1_stats:
+        console.print(f"  L1 缓存命中率：[bold]{l1_stats.hit_rate:.0%}[/bold]")
+        console.print(f"  L1 缓存条目数：{l1_stats.current_size}")
+
+    # 延迟改善
+    if first_duration > 0:
+        speedup = first_duration / max(second_duration, 0.001)
+        console.print(f"  缓存加速比：[bold green]{speedup:.1f}x[/bold green]")
+
+    console.print()
+    print_success("缓存命中时跳过完整 Pipeline（6 个阶段），直接返回缓存结果")
+    console.print()
+
+    print_section("步骤 7：性能 vs 成本权衡")
 
     # 显示性能指标
     perf_table = create_comparison_table(
@@ -390,16 +488,17 @@ async def main(mock: bool = True):
 
     print_section("总结")
 
-    print_success(f"多模型路由与成本优化完成！")
+    print_success("多模型路由与成本优化完成！")
     print_success(f"- 路由准确率：{format_percentage(accuracy)}")
     print_success(f"- 成本节省：{format_percentage(saved_ratio)} (相比固定使用 gpt-4o)")
-    print_success(f"- 简单查询 → gpt-4o-mini（低成本）")
-    print_success(f"- 中等查询 → gpt-4o（平衡性价比）")
-    print_success(f"- 复杂查询 → claude-sonnet-4-5（高质量）")
+    print_success("- 简单查询 -> gpt-4o-mini（低成本）")
+    print_success("- 中等查询 -> gpt-4o（平衡性价比）")
+    print_success("- 复杂查询 -> claude-sonnet-4-5-20250514（高质量）")
     print_success(f"- 预计年节省：${abs(yearly_saved):,.2f}")
+    print_success("- 缓存命中时跳过 Pipeline，进一步降低延迟和计算开销")
 
-    console.print(f"\n[dim]提示：生产环境可使用基于 LLM 的路由器（router_type=llm），准确率更高[/dim]")
-    console.print(f"[dim]参考配置文件：configs/default_policy.yaml 中的 routing 配置[/dim]")
+    console.print("\n[dim]提示：生产环境可使用基于 LLM 的路由器（router_type=llm），准确率更高[/dim]")
+    console.print("[dim]参考配置文件：configs/cost_optimization_policy.yaml 中的 routing + cache 配置[/dim]")
 
 
 if __name__ == "__main__":

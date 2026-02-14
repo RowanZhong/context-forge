@@ -28,11 +28,13 @@ from __future__ import annotations
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from context_forge.models.control import Visibility
-from context_forge.models.segment import Segment
-from context_forge.routing.base import AgentContext
+
+if TYPE_CHECKING:
+    from context_forge.models.segment import Segment
+    from context_forge.routing.base import AgentContext
 
 
 @dataclass
@@ -236,7 +238,7 @@ class ContextBus:
                 if seg.control.is_visible_to(agent.namespace):
                     visible.append(seg)
 
-        # 3. 其他 namespace 中显式授权的 Segment
+        # 3. 其他 namespace 中显式授权或全局/下游可见的 Segment
         for namespace, segments in self._segments_by_namespace.items():
             if namespace in (agent.namespace, "default"):
                 continue
@@ -244,6 +246,8 @@ class ContextBus:
                 if seg.control.visibility == Visibility.AGENT_ONLY:
                     if seg.control.namespace == agent.namespace:
                         visible.append(seg)
+                elif seg.control.visibility in (Visibility.GLOBAL, Visibility.DOWNSTREAM):
+                    visible.append(seg)
 
         return visible
 

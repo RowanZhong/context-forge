@@ -32,9 +32,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from context_forge.models.budget import BudgetPolicy
 from context_forge.models.segment import Priority, Segment, SegmentType
+
+if TYPE_CHECKING:
+    from context_forge.models.budget import BudgetPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -229,9 +232,12 @@ class ElasticStrategy:
 
                     # 尝试截断以适应剩余配额
                     if remaining >= policy.min_elastic_tokens and seg.control.compressible:
-                        # 🏭 生产提示：这里应调用真实的截断函数（如 TiktokenCounter.truncate_to_tokens）
+                        # 🏭 生产提示：这里应调用真实的截断函数
+                        # （如 TiktokenCounter.truncate_to_tokens）
                         # MVP 中简化为按比例截断
-                        truncated_content = self._truncate_simple(seg.content, remaining, seg_tokens)
+                        truncated_content = self._truncate_simple(
+                            seg.content, remaining, seg_tokens
+                        )
                         truncated_seg = seg.with_content(
                             truncated_content + "...[已截断]"
                         ).with_token_count(remaining)

@@ -348,15 +348,14 @@ for warning in context.warnings:
 
 ```python
 # 保存 Snapshot
-snapshot = context.to_snapshot()
-snapshot_id = await forge.save_snapshot(snapshot)
+snapshot_id = await forge.save_snapshot(context)
 
 # Diff 对比
 diff = await forge.diff_snapshots(snapshot_id_1, snapshot_id_2)
-print(diff.summary())
 
 # Golden Set 回归
-is_match = await forge.validate_against_golden("test_case_001", context)
+result = await forge.validate_against_golden("test_case_001", context)
+assert result["passed"]  # 无差异则通过
 ```
 
 ### 4. 意图路由与动态调度
@@ -451,7 +450,7 @@ context = await forge.build(
     ],
 )
 
-# 自动过滤低分文档、去重、按优先级截断
+# 自动去重、优先级排序、按预算截断（通过 rag_policy.yaml 配置）
 ```
 
 ### 2. 多轮对话记忆管理
@@ -460,14 +459,17 @@ context = await forge.build(
 
 **方案**：Budget + Compress + Rolling Summary + Must-Keep
 
+> Rolling Summary 需要配置 LLM Provider（`compress.default_compressor="summary"`）。
+> 未配置时自动降级为截断压缩，无需外部依赖即可工作。
+
 ```python
-# 标记最近 3 轮对话为 must-keep
+# 标记最近 3 轮对话为 must-keep（不会被压缩或丢弃）
 recent_messages = [
     {"role": "user", "content": msg.content, "must_keep": True}
     for msg in conversation.recent(3)
 ]
 
-# 旧对话自动压缩为摘要
+# 旧对话自动按预算截断（must_keep 消息受保护）
 context = await forge.build(
     system_prompt=system_prompt,
     messages=recent_messages + older_messages,
@@ -481,21 +483,28 @@ context = await forge.build(
 **方案**：Isolate + Context Bus + Handoff + Namespace
 
 ```python
-# Agent A 创建上下文
-context_a = await forge_a.build(
-    messages=[...],
-    namespace="agent_a",
-    visibility="private",  # 仅 Agent A 可见
-)
+from context_forge.routing.context_bus import ContextBus, HandoffRequest
+from context_forge.routing.base import AgentContext
 
-# 交接给 Agent B
-handoff = context_a.create_handoff(
-    target_agent="agent_b",
-    shared_segments=["system", "user_query"],  # 仅共享部分 Segment
-)
+# 注册 Agent
+bus = ContextBus()
+bus.register_agent(AgentContext(agent_id="agent_a", namespace="agent_a", role="planner"))
+bus.register_agent(AgentContext(agent_id="agent_b", namespace="agent_b", role="executor"))
 
-# Agent B 接收
-context_b = await forge_b.build_from_handoff(handoff)
+# Agent A 构建上下文并发布到总线
+context_a = await forge_a.build(messages=[...], namespace="agent_a")
+for seg in context_a.segments:
+    bus.publish_segment(AgentContext(agent_id="agent_a", namespace="agent_a", role="planner"), seg)
+
+# Agent A 交接给 Agent B
+bus.handoff(HandoffRequest(
+    from_agent_id="agent_a",
+    to_agent_id="agent_b",
+    reason="规划完成，交接执行",
+))
+
+# Agent B 获取可见的 Segment
+visible = bus.get_visible_segments(AgentContext(agent_id="agent_b", namespace="agent_b", role="executor"))
 ```
 
 ### 4. 安全合规清洗
@@ -514,7 +523,7 @@ context = await forge.build(
     messages=[{"role": "user", "content": untrusted_input}],
 )
 
-# 自动脱敏：手机号 → [PHONE]，邮箱 → [EMAIL]
+# 自动脱敏：手机号 → 138****8000，邮箱 → a***b@example.com
 # 自动检测：Injection 尝试 → 拦截并记录审计日志
 ```
 
@@ -525,16 +534,19 @@ context = await forge.build(
 **方案**：Observability + Snapshot + Diff + Golden Set
 
 ```python
-# 保存当前版本为基线
-baseline = await forge.save_snapshot(context, tags=["baseline", "v1.0"])
+# 保存当前版本为快照
+baseline_id = await forge.save_snapshot(context)
 
 # 修改 Prompt 后回归测试
 new_context = await forge.build(...)
-diff = await forge.diff_snapshots(baseline, new_context.to_snapshot())
+new_id = await forge.save_snapshot(new_context)
 
-# 验证关键指标
-assert diff.token_delta < 100  # Token 变化 < 100
-assert diff.segment_count_delta == 0  # Segment 数量不变
+# 对比两个快照
+diff = await forge.diff_snapshots(baseline_id, new_id)
+
+# 与黄金快照进行回归检测
+result = await forge.validate_against_golden(baseline_id, new_context)
+assert result["passed"]  # 无差异则通过
 ```
 
 ### 6. 多模型适配与成本优化
@@ -544,18 +556,17 @@ assert diff.segment_count_delta == 0  # Segment 数量不变
 **方案**：Routing + Budget + Cache
 
 ```python
-# 简单任务 → GPT-4o Mini
-# 复杂任务 → Claude Opus
-# RAG 任务 → 本地嵌入模型
-
+# 通过策略文件启用路由
 forge = ContextForge(
-    routing_enabled=True,
-    routing_strategy="llm",  # 使用小模型智能路由
+    model="gpt-4o",
+    policy_path="configs/cost_optimization_policy.yaml",
 )
 
 context = await forge.build(...)
-print(f"选择模型: {context.routing_decision.chosen_model}")
-print(f"预估成本: ${context.routing_decision.estimated_cost:.4f}")
+if context.routing_decision:
+    print(f"选择模型: {context.routing_decision.selected_model.model_id}")
+    print(f"复杂度: {context.routing_decision.complexity.value}")
+    print(f"预估成本: ${context.routing_decision.estimated_cost:.4f}")
 ```
 
 ---
@@ -756,11 +767,8 @@ class ContextPackage:
     def to_messages(self) -> list[dict]:
         """转换为 LLM API 消息格式"""
 
-    def to_snapshot(self) -> ContextSnapshot:
-        """转换为快照（用于回归测试）"""
-
-    def to_dict(self) -> dict:
-        """转换为字典"""
+    def to_snapshot(self) -> dict[str, Any]:
+        """转换为快照字典（用于持久化和回归测试）"""
 ```
 
 ### CLI 工具
@@ -838,6 +846,9 @@ make typecheck
 
 # 构建文档
 make docs
+
+# 运行性能基准测试
+python -m pytest benchmarks/ -v --no-cov -s
 
 # 启动开发服务器
 make dev

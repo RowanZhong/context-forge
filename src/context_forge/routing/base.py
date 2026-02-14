@@ -13,10 +13,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from context_forge.models.routing import RoutingDecision
-from context_forge.models.segment import Segment
+if TYPE_CHECKING:
+    from context_forge.models.routing import RoutingDecision
+    from context_forge.models.segment import Segment
 
 
 @dataclass(frozen=True)

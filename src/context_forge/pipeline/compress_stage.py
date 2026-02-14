@@ -18,12 +18,15 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from context_forge.compress.engine import CompressEngine
 from context_forge.errors.exceptions import PipelineStageError
 from context_forge.models.audit import AuditEntry, DecisionType, ReasonCode
-from context_forge.models.segment import Segment
-from context_forge.pipeline.base import PipelineContext
+
+if TYPE_CHECKING:
+    from context_forge.models.segment import Segment
+    from context_forge.pipeline.base import PipelineContext
 
 logger = logging.getLogger(__name__)
 

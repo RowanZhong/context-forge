@@ -169,7 +169,9 @@ def build_command(
     # 显示快照 ID（如果保存了）
     if snapshot and forge._snapshot_manager:
         console.print(f"\n[dim]快照 ID: {package.request_id}[/dim]")
-        console.print(f"[dim]快照路径: {forge._policy.observability.snapshot_dir}/{package.request_id}.json[/dim]")
+        snap_dir = forge._policy.observability.snapshot_dir
+        snap_path = f"{snap_dir}/{package.request_id}.json"
+        console.print(f"[dim]快照路径: {snap_path}[/dim]")
 
 
 def _output_text(package: Any, output_path: str | None) -> None:
@@ -185,7 +187,7 @@ def _output_text(package: Any, output_path: str | None) -> None:
 
 def _output_json(package: Any, output_path: str | None) -> None:
     """输出完整 JSON 快照。"""
-    snapshot = package.to_snapshot_dict()
+    snapshot = package.to_snapshot()
     json_text = json.dumps(snapshot, ensure_ascii=False, indent=2, default=str)
 
     if output_path:
@@ -223,11 +225,11 @@ def _render_rich_output(package: Any, target_console: Any) -> None:
     summary_panel = create_summary_panel("上下文包摘要", summary_content, border_style="green")
 
     # 2. Segment 表格
-    segments_data = package.to_snapshot_dict()["segments"]
+    segments_data = package.to_snapshot()["segments"]
     segment_table = create_segment_table(segments_data)
 
     # 3. 预算表格
-    budget_data = package.to_snapshot_dict()["budget"]
+    budget_data = package.to_snapshot()["budget"]
     if budget_data:
         budget_table = create_budget_table(budget_data)
     else:
@@ -276,5 +278,9 @@ def _render_rich_output(package: Any, target_console: Any) -> None:
         target_console.print("[bold]Token 使用分布（按角色）：[/bold]")
         for role, count in sorted(usage.by_role.items(), key=lambda x: -x[1]):
             percentage = count / usage.total_tokens * 100 if usage.total_tokens > 0 else 0
-            target_console.print(f"  [cyan]{role:12}[/cyan]: {format_token_count(count):>10} ({percentage:.1f}%)")
+            formatted = format_token_count(count)
+            target_console.print(
+                f"  [cyan]{role:12}[/cyan]:"
+                f" {formatted:>10} ({percentage:.1f}%)"
+            )
         target_console.print("\n")

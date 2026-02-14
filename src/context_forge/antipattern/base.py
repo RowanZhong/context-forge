@@ -22,11 +22,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from context_forge.models.audit import AuditEntry
-from context_forge.models.budget import BudgetAllocation, BudgetPolicy
-from context_forge.models.segment import Segment
+if TYPE_CHECKING:
+    from context_forge.models.audit import AuditEntry
+    from context_forge.models.budget import BudgetAllocation, BudgetPolicy
+    from context_forge.models.segment import Segment
 
 
 class AntiPatternSeverity(str, Enum):

@@ -16,11 +16,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from context_forge.models.audit import AuditEntry, DecisionType, ReasonCode
-from context_forge.models.segment import Segment
-from context_forge.pipeline.base import PipelineContext
 
 if TYPE_CHECKING:
-    from context_forge.sanitize.base import SanitizerChain
+    from context_forge.models.segment import Segment
+    from context_forge.pipeline.base import PipelineContext
+    from context_forge.sanitize.base import Sanitizer, SanitizeResult, SanitizerChain
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ class SanitizeStage:
         from context_forge.sanitize.pii_redactor import PIIRedactor
         from context_forge.sanitize.unicode_normalizer import UnicodeNormalizer
 
-        sanitizers = []
+        sanitizers: list[Sanitizer] = []
 
         # 1. Unicode 归一化（始终启用）
         sanitizers.append(UnicodeNormalizer())
@@ -147,14 +147,24 @@ class SanitizeStage:
         if pii_redaction:
             # 将 pattern 名称转换为 PIIType
             from context_forge.sanitize.pii_redactor import PIIType
+            _pii_name_map = {
+                "phone": PIIType.PHONE,
+                "email": PIIType.EMAIL,
+                "id_card": PIIType.ID_CARD,
+                "bank_card": PIIType.BANK_CARD,
+                "ip_address": PIIType.IP_ADDRESS,
+                "url": PIIType.URL,
+            }
             enabled_types = set()
             for pattern in pii_patterns:
-                if pattern == "phone":
-                    enabled_types.add(PIIType.PHONE)
-                elif pattern == "email":
-                    enabled_types.add(PIIType.EMAIL)
-                elif pattern == "id_card":
-                    enabled_types.add(PIIType.ID_CARD)
+                if pattern in _pii_name_map:
+                    enabled_types.add(_pii_name_map[pattern])
+                else:
+                    logger.warning(
+                        "未知的 PII 模式 '%s'，已忽略。支持的模式：%s",
+                        pattern,
+                        ", ".join(sorted(_pii_name_map.keys())),
+                    )
             sanitizers.append(PIIRedactor(enabled_types=enabled_types if enabled_types else None))
 
         # 4. Injection 检测
@@ -209,8 +219,6 @@ class SanitizeStage:
         3. 根据清洗结果决定保留/移除/修改
         4. 记录审计日志
         """
-        from context_forge.sanitize.base import SanitizeResult
-
         result: list[Segment] = []
 
         for seg in segments:

@@ -22,10 +22,12 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from context_forge.errors.exceptions import SerializationError
-from context_forge.models.context_package import ContextPackage
+
+if TYPE_CHECKING:
+    from context_forge.models.context_package import ContextPackage
 
 
 def _generate_snapshot_id(request_id: str) -> str:
@@ -275,7 +277,7 @@ class SnapshotManager:
 
                 results.append(metadata)
             except Exception as e:
-                warnings.warn(f"读取 Snapshot {file_path.name} 失败：{e}")
+                warnings.warn(f"读取 Snapshot {file_path.name} 失败：{e}", stacklevel=2)
                 continue
 
         return results
@@ -299,7 +301,7 @@ class SnapshotManager:
             file_path.unlink()
             return True
         except Exception as e:
-            warnings.warn(f"删除 Snapshot {snapshot_id} 失败：{e}")
+            warnings.warn(f"删除 Snapshot {snapshot_id} 失败：{e}", stacklevel=2)
             return False
 
     async def list_all(self) -> list[SnapshotMetadata]:
@@ -381,4 +383,4 @@ class SnapshotManager:
                 if file_path.stat().st_mtime < cutoff_time:
                     file_path.unlink()
             except Exception as e:
-                warnings.warn(f"清理旧 Snapshot {file_path.name} 失败：{e}")
+                warnings.warn(f"清理旧 Snapshot {file_path.name} 失败：{e}", stacklevel=2)
